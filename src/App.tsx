@@ -4,6 +4,7 @@ import { useSession, Login } from './auth'
 import type { Subsidy, Followup } from './types'
 import { SubsidyList } from './components/SubsidyList'
 import { SubsidyEditor } from './components/SubsidyEditor'
+import { BaseupTab } from './components/BaseupTab'
 import './App.css'
 
 export default function App() {
@@ -202,11 +203,3 @@ function SubsidiesTab() {
   )
 }
 
-// ── ベースアップ評価料タブ（次のステップで中身を実装） ──────────────
-function BaseupTab() {
-  return (
-    <p className="muted center empty-note">
-      ベースアップ評価料の月次管理は準備中です（次のステップで追加します）。
-    </p>
-  )
-}

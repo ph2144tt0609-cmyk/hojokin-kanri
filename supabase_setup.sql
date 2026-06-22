@@ -61,3 +61,16 @@ create policy "own rows followups"
   on public.followups for all
   to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
+
+-- 5. ベースアップ評価料の月次管理データ（ユーザーごとに1件・JSONでまとめて保存） -----
+create table if not exists public.baseup_state (
+  user_id    uuid primary key default auth.uid() references auth.users(id) on delete cascade,
+  data       jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.baseup_state enable row level security;
+drop policy if exists "own baseup_state" on public.baseup_state;
+create policy "own baseup_state"
+  on public.baseup_state for all
+  to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
