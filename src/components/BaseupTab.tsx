@@ -107,9 +107,12 @@ function defaultState(): BaseupState {
   return { months: buildDefaultMonths(), staff: DEFAULT_STAFF, factor: 1.29 }
 }
 
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
+
 // ── 読み込み・保存（Supabase: baseup_state にユーザー単位で1件） ──────────
 export function BaseupTab() {
   const [state, setState] = useState<BaseupState | null>(null)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const uidRef = useRef<string | null>(null)
   const skipNextSave = useRef(true)
 
@@ -148,6 +151,7 @@ export function BaseupTab() {
       return
     }
     const t = setTimeout(() => {
+      setSaveStatus('saving')
       supabase
         .from('baseup_state')
         .upsert(
@@ -159,23 +163,30 @@ export function BaseupTab() {
           { onConflict: 'user_id' },
         )
         .then(({ error }) => {
-          if (error) console.error(error)
+          if (error) {
+            console.error(error)
+            setSaveStatus('error')
+          } else {
+            setSaveStatus('saved')
+          }
         })
     }, 800)
     return () => clearTimeout(t)
   }, [state])
 
   if (!state) return <p className="muted center">読み込み中…</p>
-  return <BaseupView state={state} onChange={setState} />
+  return <BaseupView state={state} onChange={setState} saveStatus={saveStatus} />
 }
 
 // ── 表示・編集 ────────────────────────────────────────────────
 function BaseupView({
   state,
   onChange,
+  saveStatus,
 }: {
   state: BaseupState
   onChange: (next: BaseupState) => void
+  saveStatus: SaveStatus
 }) {
   const { months, staff, factor } = state
 
@@ -323,6 +334,12 @@ function BaseupView({
           算定で得た収入（処方箋受付 × 点数 × 10円）と、職員の賃金改善額を突き合わせ、
           充当不足がないかを管理します。
         </p>
+        <div className={'save-status save-' + saveStatus}>
+          {saveStatus === 'saving' && '保存中…'}
+          {saveStatus === 'saved' && '✓ 保存しました（自動保存）'}
+          {saveStatus === 'error' && '⚠ 保存できませんでした。通信状況をご確認ください'}
+          {saveStatus === 'idle' && '入力すると自動で保存されます'}
+        </div>
       </div>
 
       {/* ステータス */}
