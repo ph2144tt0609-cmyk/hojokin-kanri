@@ -13,7 +13,45 @@ export default function App() {
   return <Main email={session.user.email ?? ''} />
 }
 
+type Tab = 'hojokin' | 'baseup'
+
 function Main({ email }: { email: string }) {
+  const [tab, setTab] = useState<Tab>('hojokin')
+
+  return (
+    <div className="app">
+      <header className="topbar">
+        <h1 className="brand">薬局管理ツール</h1>
+        <div className="topbar-right">
+          <span className="user-email">{email}</span>
+          <button className="btn-ghost" onClick={() => supabase.auth.signOut()}>
+            ログアウト
+          </button>
+        </div>
+      </header>
+
+      <nav className="tabbar">
+        <button
+          className={'tab' + (tab === 'hojokin' ? ' tab-active' : '')}
+          onClick={() => setTab('hojokin')}
+        >
+          補助金管理
+        </button>
+        <button
+          className={'tab' + (tab === 'baseup' ? ' tab-active' : '')}
+          onClick={() => setTab('baseup')}
+        >
+          ベースアップ評価料
+        </button>
+      </nav>
+
+      {tab === 'hojokin' ? <SubsidiesTab /> : <BaseupTab />}
+    </div>
+  )
+}
+
+// ── 補助金管理タブ ──────────────────────────────────────────────
+function SubsidiesTab() {
   const [subsidies, setSubsidies] = useState<Subsidy[]>([])
   const [filter, setFilter] = useState<string>('すべて')
   const [editing, setEditing] = useState<Subsidy | null>(null)
@@ -124,17 +162,7 @@ function Main({ email }: { email: string }) {
   }
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <h1 className="brand">補助金管理</h1>
-        <div className="topbar-right">
-          <span className="user-email">{email}</span>
-          <button className="btn-ghost" onClick={() => supabase.auth.signOut()}>
-            ログアウト
-          </button>
-        </div>
-      </header>
-
+    <>
       <div className="toolbar">
         <div className="filters">
           {['すべて', ...departments].map((d) => (
@@ -170,6 +198,15 @@ function Main({ email }: { email: string }) {
           onDelete={handleDelete}
         />
       )}
-    </div>
+    </>
+  )
+}
+
+// ── ベースアップ評価料タブ（次のステップで中身を実装） ──────────────
+function BaseupTab() {
+  return (
+    <p className="muted center empty-note">
+      ベースアップ評価料の月次管理は準備中です（次のステップで追加します）。
+    </p>
   )
 }
