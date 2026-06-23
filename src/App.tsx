@@ -162,6 +162,54 @@ function SubsidiesTab() {
     await load()
   }
 
+  // いまの内容をコピーして新しい補助金を作り、そのコピーを編集画面で開く
+  async function handleDuplicate(form: Subsidy, followups: Followup[]) {
+    const row = {
+      name: form.name,
+      department: form.department,
+      deadline: form.deadline,
+      applied: form.applied,
+      applied_at: form.applied_at,
+      decision: form.decision,
+      decision_at: form.decision_at,
+      paid: form.paid,
+      paid_at: form.paid_at,
+      note: form.note,
+    }
+    const { data, error } = await supabase
+      .from('subsidies')
+      .insert(row)
+      .select('id')
+      .single()
+    if (error || !data) {
+      console.error(error)
+      alert('複製に失敗しました')
+      return
+    }
+    const newId = data.id as string
+    if (followups.length) {
+      const { error: fe } = await supabase.from('followups').insert(
+        followups.map((f) => ({
+          subsidy_id: newId,
+          name: f.name,
+          due_date: f.due_date,
+          done: f.done,
+          done_at: f.done_at,
+        })),
+      )
+      if (fe) console.error(fe)
+    }
+    await load()
+    // 複製したコピーを開く（区分などを変えやすく）
+    const { data: fresh } = await supabase
+      .from('subsidies')
+      .select('*, followups(*)')
+      .eq('id', newId)
+      .single()
+    setCreating(false)
+    setEditing((fresh as Subsidy) ?? null)
+  }
+
   return (
     <>
       <div className="toolbar">
@@ -189,6 +237,7 @@ function SubsidiesTab() {
 
       {(editing || creating) && (
         <SubsidyEditor
+          key={editing?.id ?? 'new'}
           subsidy={editing}
           departments={departments}
           onClose={() => {
@@ -197,6 +246,7 @@ function SubsidiesTab() {
           }}
           onSave={handleSave}
           onDelete={handleDelete}
+          onDuplicate={handleDuplicate}
         />
       )}
     </>

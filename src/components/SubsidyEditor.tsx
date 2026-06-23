@@ -30,9 +30,17 @@ type Props = {
   onClose: () => void
   onSave: (form: Subsidy, followups: Followup[]) => void | Promise<void>
   onDelete: (id: string) => void | Promise<void>
+  onDuplicate: (form: Subsidy, followups: Followup[]) => void | Promise<void>
 }
 
-export function SubsidyEditor({ subsidy, departments, onClose, onSave, onDelete }: Props) {
+export function SubsidyEditor({
+  subsidy,
+  departments,
+  onClose,
+  onSave,
+  onDelete,
+  onDuplicate,
+}: Props) {
   const init = subsidy ?? EMPTY
   const isNew = !init.id
 
@@ -105,6 +113,26 @@ export function SubsidyEditor({ subsidy, departments, onClose, onSave, onDelete 
       ...status,
     }
     await onSave(form, followups.filter((f) => f.name.trim()))
+    setBusy(false)
+  }
+
+  // いま表示中の内容をコピーして新しい補助金を作る（区分違いの登録などに便利）
+  async function handleDuplicate() {
+    if (!name.trim()) {
+      alert('補助金名を入力してください')
+      return
+    }
+    setBusy(true)
+    const form: Subsidy = {
+      ...init,
+      id: init.id,
+      name: name.trim(),
+      department,
+      deadline: deadline || null,
+      note,
+      ...status,
+    }
+    await onDuplicate(form, followups.filter((f) => f.name.trim()))
     setBusy(false)
   }
 
@@ -228,6 +256,16 @@ export function SubsidyEditor({ subsidy, departments, onClose, onSave, onDelete 
               </button>
             )}
             <div className="foot-right">
+              {!isNew && (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={handleDuplicate}
+                  disabled={busy}
+                >
+                  複製
+                </button>
+              )}
               <button type="button" className="btn-ghost" onClick={onClose}>
                 キャンセル
               </button>
