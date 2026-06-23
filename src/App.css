@@ -117,6 +117,19 @@
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sort-select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 14px;
+  background: #fff;
+  color: var(--text);
+}
 .filters {
   display: flex;
   gap: 6px;

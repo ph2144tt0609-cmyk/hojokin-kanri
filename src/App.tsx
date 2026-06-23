@@ -55,6 +55,7 @@ function Main({ email }: { email: string }) {
 function SubsidiesTab() {
   const [subsidies, setSubsidies] = useState<Subsidy[]>([])
   const [filter, setFilter] = useState<string>('すべて')
+  const [sort, setSort] = useState<string>('deadline-asc')
   const [editing, setEditing] = useState<Subsidy | null>(null)
   const [creating, setCreating] = useState(false)
   const [dataLoading, setDataLoading] = useState(true)
@@ -88,6 +89,24 @@ function SubsidiesTab() {
     () => Array.from(new Set(subsidies.map((s) => s.department).filter(Boolean))),
     [subsidies],
   )
+
+  // 並べ替え（期限・区分・名前）。期限は未設定を末尾に。
+  const sorted = useMemo(() => {
+    const arr = [...filtered]
+    const byDeadline = (a: Subsidy, b: Subsidy) => {
+      if (!a.deadline && !b.deadline) return 0
+      if (!a.deadline) return 1
+      if (!b.deadline) return -1
+      return a.deadline.localeCompare(b.deadline)
+    }
+    if (sort === 'deadline-asc') arr.sort(byDeadline)
+    else if (sort === 'deadline-desc') arr.sort((a, b) => -byDeadline(a, b))
+    else if (sort === 'dept')
+      arr.sort((a, b) => (a.department || '').localeCompare(b.department || '', 'ja'))
+    else if (sort === 'name')
+      arr.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ja'))
+    return arr
+  }, [filtered, sort])
 
   async function handleSave(form: Subsidy, followups: Followup[]) {
     const isNew = !form.id
@@ -224,15 +243,28 @@ function SubsidiesTab() {
             </button>
           ))}
         </div>
-        <button className="btn-primary" onClick={() => setCreating(true)}>
-          ＋ 新規追加
-        </button>
+        <div className="toolbar-actions">
+          <select
+            className="sort-select"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            aria-label="並べ替え"
+          >
+            <option value="deadline-asc">期限が近い順</option>
+            <option value="deadline-desc">期限が遠い順</option>
+            <option value="dept">区分順</option>
+            <option value="name">名前順</option>
+          </select>
+          <button className="btn-primary" onClick={() => setCreating(true)}>
+            ＋ 新規追加
+          </button>
+        </div>
       </div>
 
       {dataLoading ? (
         <p className="muted center">読み込み中…</p>
       ) : (
-        <SubsidyList subsidies={filtered} onEdit={(s) => setEditing(s)} />
+        <SubsidyList subsidies={sorted} onEdit={(s) => setEditing(s)} />
       )}
 
       {(editing || creating) && (

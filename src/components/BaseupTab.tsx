@@ -168,6 +168,8 @@ export function BaseupTab() {
             setSaveStatus('error')
           } else {
             setSaveStatus('saved')
+            // 2.5秒後にトースト表示を消す
+            window.setTimeout(() => setSaveStatus('idle'), 2500)
           }
         })
     }, 800)
@@ -334,12 +336,15 @@ function BaseupView({
           算定で得た収入（処方箋受付 × 点数 × 10円）と、職員の賃金改善額を突き合わせ、
           充当不足がないかを管理します。
         </p>
-        <div className={'save-status save-' + saveStatus}>
-          {saveStatus === 'saving' && '保存中…'}
-          {saveStatus === 'saved' && '✓ 保存しました（自動保存）'}
-          {saveStatus === 'error' && '⚠ 保存できませんでした。通信状況をご確認ください'}
-          {saveStatus === 'idle' && '入力すると自動で保存されます'}
-        </div>
+        <p className="note" style={{ marginTop: 4 }}>
+          ※ 入力した内容は自動で保存されます（保存の状況は画面右下に表示）。
+        </p>
+      </div>
+
+      <div className={'save-toast save-' + saveStatus} aria-live="polite">
+        {saveStatus === 'saving' && '保存中…'}
+        {saveStatus === 'saved' && '✓ 保存しました'}
+        {saveStatus === 'error' && '⚠ 保存できませんでした（通信をご確認ください）'}
       </div>
 
       {/* ステータス */}
