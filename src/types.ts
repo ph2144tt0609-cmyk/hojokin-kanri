@@ -23,6 +23,7 @@ export interface Subsidy {
   decision_at: string | null // 決定通知書の確認日時
   paid: boolean
   paid_at: string | null // 振込の確認日時
+  amount: number // 金額（円）
   note: string
   created_at?: string
   updated_at?: string

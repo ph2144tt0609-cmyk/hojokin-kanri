@@ -1,6 +1,6 @@
 import type { Subsidy } from '../types'
 import { STATUS_FIELDS } from '../types'
-import { deadlineLevel, daysLabel, formatDate } from '../expiry'
+import { deadlineLevel, daysLabel, formatDate, yen } from '../expiry'
 
 type Props = {
   subsidies: Subsidy[]
@@ -40,6 +40,9 @@ export function SubsidyList({ subsidies, onEdit }: Props) {
 
             <div className="card-name">{s.name || '(名称未設定)'}</div>
             <div className="card-deadline">申請期限：{formatDate(s.deadline)}</div>
+            {(Number(s.amount) || 0) > 0 && (
+              <div className="card-amount">金額：{yen(s.amount)} 円</div>
+            )}
 
             <div className="status-row">
               {STATUS_FIELDS.map((f) => (

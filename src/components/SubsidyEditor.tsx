@@ -15,6 +15,7 @@ const EMPTY: Subsidy = {
   decision_at: null,
   paid: false,
   paid_at: null,
+  amount: 0,
   note: '',
   followups: [],
 }
@@ -47,6 +48,7 @@ export function SubsidyEditor({
   const [name, setName] = useState(init.name)
   const [department, setDepartment] = useState(init.department || '')
   const [deadline, setDeadline] = useState(init.deadline ?? '')
+  const [amount, setAmount] = useState(init.amount || 0)
   const [note, setNote] = useState(init.note)
   const [status, setStatus] = useState<StatusState>({
     applied: init.applied,
@@ -109,6 +111,7 @@ export function SubsidyEditor({
       name: name.trim(),
       department,
       deadline: deadline || null,
+      amount,
       note,
       ...status,
     }
@@ -129,6 +132,7 @@ export function SubsidyEditor({
       name: name.trim(),
       department,
       deadline: deadline || null,
+      amount,
       note,
       ...status,
     }
@@ -178,6 +182,17 @@ export function SubsidyEditor({
                 />
               </label>
             </div>
+
+            <label className="field">
+              <span>金額（円）</span>
+              <input
+                type="number"
+                min="0"
+                value={amount}
+                aria-label="補助金の金額"
+                onChange={(e) => setAmount(Number(e.target.value) || 0)}
+              />
+            </label>
 
             <div className="status-block">
               <div className="block-label">進捗（チェックすると確認日時を自動記録）</div>

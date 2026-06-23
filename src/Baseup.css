@@ -257,70 +257,12 @@
   }
 }
 
-/* スマホでは職員表を1人ずつのカードに積み上げて表示（氏名が潰れないように） */
-@media (max-width: 640px) {
-  .baseup .staff-table thead {
-    display: none;
-  }
-  .baseup .staff-table tbody tr {
-    display: block;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 6px 12px;
-    margin-bottom: 10px;
-    background: #fff;
-  }
-  .baseup .staff-table tbody td {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    border: none;
-    padding: 6px 0;
-    text-align: right;
-    white-space: normal;
-  }
-  .baseup .staff-table tbody td::before {
-    content: attr(data-label);
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-    text-align: left;
-    flex: 0 0 auto;
-  }
-  .baseup .staff-table tbody td input,
-  .baseup .staff-table tbody td select {
-    max-width: none;
-    width: auto;
-    flex: 1 1 auto;
-    min-width: 0;
-    text-align: left;
-  }
-  .baseup .staff-table tbody td.staff-del-cell {
-    justify-content: flex-end;
-    padding-top: 2px;
-  }
-  .baseup .staff-table tfoot tr {
-    display: block;
-    border-top: 2px solid var(--teal);
-    margin-top: 4px;
-    padding-top: 6px;
-  }
-  .baseup .staff-table tfoot td {
-    display: flex;
-    justify-content: space-between;
-    border: none;
-    padding: 4px 0;
-    text-align: right;
-  }
-  .baseup .staff-table tfoot td::before {
-    content: attr(data-label);
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 600;
-    text-align: left;
-  }
-  .baseup .staff-table tfoot td:empty {
-    display: none;
-  }
+/* 職員表は月次明細と同じく「横スクロール」で表示（見え方を統一）。
+   氏名・職種が潰れないよう最低幅を確保し、狭い画面では横スクロールさせる。 */
+.baseup .staff-table input[type='text'] {
+  min-width: 140px;
+  max-width: 220px;
+}
+.baseup .staff-table select {
+  min-width: 96px;
 }

@@ -16,6 +16,7 @@ create table if not exists public.subsidies (
   decision_at timestamptz,                      -- 決定通知書の確認日時
   paid        boolean     not null default false, -- 振込確認
   paid_at     timestamptz,                      -- 振込の確認日時
+  amount      numeric     not null default 0,   -- 金額（円）
   note        text        not null default '',  -- メモ
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
@@ -23,6 +24,8 @@ create table if not exists public.subsidies (
 -- 既存テーブルにも所有者カラムを追加（後から導入する場合の移行）
 alter table public.subsidies
   add column if not exists user_id uuid not null default auth.uid() references auth.users(id) on delete cascade;
+-- 金額欄（後から導入する場合の移行）
+alter table public.subsidies add column if not exists amount numeric not null default 0;
 
 -- 2. 後追いの提出物（補助金ごとに 0 個以上） ----------------------------------
 create table if not exists public.followups (

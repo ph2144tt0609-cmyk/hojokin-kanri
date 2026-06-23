@@ -38,6 +38,9 @@ export function formatDate(dateStr: string | null): string {
   return dateStr.replaceAll('-', '/')
 }
 
+// 金額を「1,234,567」のような3桁区切りに（円表示用）。
+export const yen = (n: number) => Math.round(Number(n) || 0).toLocaleString('ja-JP')
+
 // ISO タイムスタンプを 'YYYY/MM/DD HH:mm' 表示に。
 export function formatDateTime(ts: string | null): string {
   if (!ts) return '—'

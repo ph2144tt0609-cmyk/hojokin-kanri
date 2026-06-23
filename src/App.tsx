@@ -5,6 +5,7 @@ import type { Subsidy, Followup } from './types'
 import { SubsidyList } from './components/SubsidyList'
 import { SubsidyEditor } from './components/SubsidyEditor'
 import { BaseupTab } from './components/BaseupTab'
+import { yen } from './expiry'
 import './App.css'
 
 export default function App() {
@@ -108,6 +109,18 @@ function SubsidiesTab() {
     return arr
   }, [filtered, sort])
 
+  // まとめ（表示中の補助金の金額を集計）。申請済・振込済はステータスで判定。
+  const summary = useMemo(() => {
+    let appliedSum = 0
+    let paidSum = 0
+    filtered.forEach((s) => {
+      const amt = Number(s.amount) || 0
+      if (s.applied) appliedSum += amt
+      if (s.paid) paidSum += amt
+    })
+    return { count: filtered.length, appliedSum, paidSum }
+  }, [filtered])
+
   async function handleSave(form: Subsidy, followups: Followup[]) {
     const isNew = !form.id
     const row = {
@@ -120,6 +133,7 @@ function SubsidiesTab() {
       decision_at: form.decision_at,
       paid: form.paid,
       paid_at: form.paid_at,
+      amount: form.amount,
       note: form.note,
       updated_at: new Date().toISOString(),
     }
@@ -193,6 +207,7 @@ function SubsidiesTab() {
       decision_at: form.decision_at,
       paid: form.paid,
       paid_at: form.paid_at,
+      amount: form.amount,
       note: form.note,
     }
     const { data, error } = await supabase
@@ -231,6 +246,37 @@ function SubsidiesTab() {
 
   return (
     <>
+      <div className="summary">
+        <div className="sum-card">
+          <div className="sum-label">件数{filter !== 'すべて' ? `・${filter}` : ''}</div>
+          <div className="sum-value">
+            {summary.count}
+            <small> 件</small>
+          </div>
+        </div>
+        <div className="sum-card">
+          <div className="sum-label">申請済の合計金額</div>
+          <div className="sum-value">
+            {yen(summary.appliedSum)}
+            <small> 円</small>
+          </div>
+        </div>
+        <div className="sum-card">
+          <div className="sum-label">振込済の合計金額</div>
+          <div className="sum-value">
+            {yen(summary.paidSum)}
+            <small> 円</small>
+          </div>
+        </div>
+        <div className="sum-card">
+          <div className="sum-label">未入金（申請済−振込済）</div>
+          <div className="sum-value">
+            {yen(summary.appliedSum - summary.paidSum)}
+            <small> 円</small>
+          </div>
+        </div>
+      </div>
+
       <div className="toolbar">
         <div className="filters">
           {['すべて', ...departments].map((d) => (
