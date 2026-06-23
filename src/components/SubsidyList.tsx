@@ -23,7 +23,8 @@ export function SubsidyList({ subsidies, onEdit }: Props) {
         const fus = s.followups ?? []
         const doneFu = fus.filter((f) => f.done).length
         const allDone = s.applied && s.decision && s.paid && fus.every((f) => f.done)
-        const cardLevel = allDone ? 'done' : level
+        // 申請期限＝「申請するまでの期限」なので、申請済みなら期限の緊急度・カウントダウンは出さない
+        const cardLevel = allDone ? 'done' : s.applied ? 'none' : level
 
         return (
           <button
@@ -33,8 +34,10 @@ export function SubsidyList({ subsidies, onEdit }: Props) {
           >
             <div className="card-head">
               <span className="dept-badge">{s.department || '—'}</span>
-              <span className={'deadline-tag tag-' + (allDone ? 'done' : level)}>
-                {allDone ? '完了' : daysLabel(s.deadline)}
+              <span
+                className={'deadline-tag tag-' + (allDone ? 'done' : s.applied ? 'none' : level)}
+              >
+                {allDone ? '完了' : s.applied ? '申請済' : daysLabel(s.deadline)}
               </span>
             </div>
 

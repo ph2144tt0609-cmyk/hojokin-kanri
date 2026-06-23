@@ -524,7 +524,7 @@ function BaseupView({
                       type="number"
                       min="0"
                       aria-label="月額ベア額"
-                      value={s.baseUp}
+                      value={s.baseUp || ''}
                       onChange={(e) => updStaff(s.id, 'baseUp', Number(e.target.value) || 0)}
                     />
                   </td>

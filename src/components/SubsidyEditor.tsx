@@ -188,7 +188,8 @@ export function SubsidyEditor({
               <input
                 type="number"
                 min="0"
-                value={amount}
+                value={amount || ''}
+                placeholder="0"
                 aria-label="補助金の金額"
                 onChange={(e) => setAmount(Number(e.target.value) || 0)}
               />
