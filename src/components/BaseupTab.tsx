@@ -489,7 +489,7 @@ function BaseupView({
           <span className="num">3</span>対象職員の賃上げ（月額ベア額）
         </h2>
         <div className="tbl-scroll">
-          <table>
+          <table className="staff-table">
             <thead>
               <tr>
                 <th>氏名</th>
@@ -503,7 +503,7 @@ function BaseupView({
             <tbody>
               {staff.map((s) => (
                 <tr key={s.id}>
-                  <td>
+                  <td data-label="氏名">
                     <input
                       type="text"
                       value={s.name}
@@ -512,14 +512,14 @@ function BaseupView({
                       onChange={(e) => updStaff(s.id, 'name', e.target.value)}
                     />
                   </td>
-                  <td>
+                  <td data-label="職種">
                     <select value={s.role} aria-label="職種" onChange={(e) => updStaff(s.id, 'role', e.target.value)}>
                       {ROLES.map((r) => (
                         <option key={r}>{r}</option>
                       ))}
                     </select>
                   </td>
-                  <td>
+                  <td data-label="月額ベア額(円)">
                     <input
                       type="number"
                       min="0"
@@ -528,7 +528,7 @@ function BaseupView({
                       onChange={(e) => updStaff(s.id, 'baseUp', Number(e.target.value) || 0)}
                     />
                   </td>
-                  <td>
+                  <td data-label="適用開始月">
                     <input
                       type="month"
                       aria-label="適用開始月"
@@ -536,8 +536,8 @@ function BaseupView({
                       onChange={(e) => updStaff(s.id, 'startYm', e.target.value)}
                     />
                   </td>
-                  <td>{yen((Number(s.baseUp) || 0) * factor)}</td>
-                  <td>
+                  <td data-label="充当/月">{yen((Number(s.baseUp) || 0) * factor)}</td>
+                  <td className="staff-del-cell">
                     <button className="btn del" onClick={() => delStaff(s.id)}>
                       削除
                     </button>
@@ -548,9 +548,13 @@ function BaseupView({
             <tfoot>
               <tr>
                 <td colSpan={2}>合計</td>
-                <td>{yen(staff.reduce((a, s) => a + (Number(s.baseUp) || 0), 0))}</td>
-                <td>—</td>
-                <td>{yen(staff.reduce((a, s) => a + (Number(s.baseUp) || 0), 0) * factor)}</td>
+                <td data-label="月額ベア額 合計">
+                  {yen(staff.reduce((a, s) => a + (Number(s.baseUp) || 0), 0))}
+                </td>
+                <td></td>
+                <td data-label="充当/月 合計">
+                  {yen(staff.reduce((a, s) => a + (Number(s.baseUp) || 0), 0) * factor)}
+                </td>
                 <td></td>
               </tr>
             </tfoot>
