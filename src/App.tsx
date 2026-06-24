@@ -23,7 +23,10 @@ function Main({ email }: { email: string }) {
   return (
     <div className="app">
       <header className="topbar">
-        <h1 className="brand">薬局管理ツール</h1>
+        <h1 className="brand">
+          <span className="brand-mark" aria-hidden="true">¥</span>
+          薬局管理ツール
+        </h1>
         <div className="topbar-right">
           <span className="user-email">{email}</span>
           <button className="btn-ghost" onClick={() => supabase.auth.signOut()}>
@@ -247,32 +250,44 @@ function SubsidiesTab() {
   return (
     <>
       <div className="summary">
-        <div className="sum-card">
-          <div className="sum-label">件数{filter !== 'すべて' ? `・${filter}` : ''}</div>
-          <div className="sum-value">
-            {summary.count}
-            <small> 件</small>
+        <div className="sum-card sum-count">
+          <div className="sum-icon" aria-hidden="true">📋</div>
+          <div className="sum-main">
+            <div className="sum-label">件数{filter !== 'すべて' ? `・${filter}` : ''}</div>
+            <div className="sum-value">
+              {summary.count}
+              <small> 件</small>
+            </div>
           </div>
         </div>
-        <div className="sum-card">
-          <div className="sum-label">申請済の合計金額</div>
-          <div className="sum-value">
-            {yen(summary.appliedSum)}
-            <small> 円</small>
+        <div className="sum-card sum-applied">
+          <div className="sum-icon" aria-hidden="true">📨</div>
+          <div className="sum-main">
+            <div className="sum-label">申請済の合計金額</div>
+            <div className="sum-value">
+              {yen(summary.appliedSum)}
+              <small> 円</small>
+            </div>
           </div>
         </div>
-        <div className="sum-card">
-          <div className="sum-label">振込済の合計金額</div>
-          <div className="sum-value">
-            {yen(summary.paidSum)}
-            <small> 円</small>
+        <div className="sum-card sum-paid">
+          <div className="sum-icon" aria-hidden="true">💰</div>
+          <div className="sum-main">
+            <div className="sum-label">振込済の合計金額</div>
+            <div className="sum-value">
+              {yen(summary.paidSum)}
+              <small> 円</small>
+            </div>
           </div>
         </div>
-        <div className="sum-card">
-          <div className="sum-label">未入金（申請済−振込済）</div>
-          <div className="sum-value">
-            {yen(summary.appliedSum - summary.paidSum)}
-            <small> 円</small>
+        <div className="sum-card sum-unpaid">
+          <div className="sum-icon" aria-hidden="true">⏳</div>
+          <div className="sum-main">
+            <div className="sum-label">未入金（申請済−振込済）</div>
+            <div className="sum-value">
+              {yen(summary.appliedSum - summary.paidSum)}
+              <small> 円</small>
+            </div>
           </div>
         </div>
       </div>

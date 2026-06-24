@@ -23,6 +23,10 @@ export function SubsidyList({ subsidies, onEdit }: Props) {
         const fus = s.followups ?? []
         const doneFu = fus.filter((f) => f.done).length
         const allDone = s.applied && s.decision && s.paid && fus.every((f) => f.done)
+        // 進捗バー：3ステータス＋後追い提出物の達成割合
+        const totalSteps = 3 + fus.length
+        const doneSteps = (s.applied ? 1 : 0) + (s.decision ? 1 : 0) + (s.paid ? 1 : 0) + doneFu
+        const progressPct = totalSteps ? Math.round((doneSteps / totalSteps) * 100) : 0
         // 申請期限＝「申請するまでの期限」なので、申請済みなら期限の緊急度・カウントダウンは出さない
         const cardLevel = allDone ? 'done' : s.applied ? 'none' : level
 
@@ -46,6 +50,10 @@ export function SubsidyList({ subsidies, onEdit }: Props) {
             {(Number(s.amount) || 0) > 0 && (
               <div className="card-amount">金額：{yen(s.amount)} 円</div>
             )}
+
+            <div className="card-progress" aria-hidden="true">
+              <span style={{ width: progressPct + '%' }} />
+            </div>
 
             <div className="status-row">
               {STATUS_FIELDS.map((f) => (

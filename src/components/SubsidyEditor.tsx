@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Subsidy, Followup, StatusKey } from '../types'
 import { STATUS_FIELDS } from '../types'
@@ -60,6 +60,50 @@ export function SubsidyEditor({
   })
   const [followups, setFollowups] = useState<Followup[]>(init.followups ?? [])
   const [busy, setBusy] = useState(false)
+
+  // 入力内容が初期状態から変わっているか（未保存の変更があるか）を判定。
+  // 枠外クリック・キャンセル・Esc で閉じる前に、これを見て確認ダイアログを出す。
+  const dirty = useMemo(() => {
+    const fi = init.followups ?? []
+    if (
+      name !== init.name ||
+      (department || '') !== (init.department || '') ||
+      (deadline || '') !== (init.deadline ?? '') ||
+      (amount || 0) !== (init.amount || 0) ||
+      note !== (init.note || '') ||
+      status.applied !== init.applied ||
+      status.decision !== init.decision ||
+      status.paid !== init.paid ||
+      followups.length !== fi.length
+    ) {
+      return true
+    }
+    return followups.some((f, i) => {
+      const b = fi[i]
+      return f.name !== b.name || (f.due_date ?? '') !== (b.due_date ?? '') || f.done !== b.done
+    })
+  }, [name, department, deadline, amount, note, status, followups, init])
+
+  // 閉じる要求。未保存の変更があるときだけ確認する（無ければそのまま閉じる）。
+  const requestClose = useCallback(() => {
+    if (dirty && !window.confirm('入力した内容はまだ保存されていません。閉じてもよろしいですか？')) {
+      return
+    }
+    onClose()
+  }, [dirty, onClose])
+
+  // Esc キーでも同じガードを通して閉じる。
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') requestClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [requestClose])
+
+  // 枠外クリックでの誤クローズ防止：押し始めが本当にオーバーレイ上だった場合のみ閉じる
+  // （入力欄から枠外へドラッグして選択 → 離した瞬間に閉じる、という事故を防ぐ）。
+  const downOnOverlay = useRef(false)
 
   // ステータスのチェックを切り替え。ON にした瞬間、確認日時が空なら現在時刻を記録。
   function toggleStatus(key: StatusKey, atKey: keyof StatusState) {
@@ -141,12 +185,21 @@ export function SubsidyEditor({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div
+      className="modal-overlay"
+      onMouseDown={(e) => {
+        downOnOverlay.current = e.target === e.currentTarget
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && downOnOverlay.current) requestClose()
+        downOnOverlay.current = false
+      }}
+    >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <form onSubmit={handleSubmit}>
           <div className="modal-head">
             <h2>{isNew ? '補助金を追加' : '補助金を編集'}</h2>
-            <button type="button" className="icon-btn" onClick={onClose} aria-label="閉じる">
+            <button type="button" className="icon-btn" onClick={requestClose} aria-label="閉じる">
               ×
             </button>
           </div>
@@ -282,7 +335,7 @@ export function SubsidyEditor({
                   複製
                 </button>
               )}
-              <button type="button" className="btn-ghost" onClick={onClose}>
+              <button type="button" className="btn-ghost" onClick={requestClose}>
                 キャンセル
               </button>
               <button type="submit" className="btn-primary" disabled={busy}>

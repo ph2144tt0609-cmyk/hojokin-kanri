@@ -1,11 +1,21 @@
 :root {
-  --bg: #f1f5f9;
+  /* ベース */
+  --bg: #eef1f8;
   --surface: #ffffff;
+  --surface-2: #f8fafc;
   --text: #0f172a;
   --muted: #64748b;
-  --border: #e2e8f0;
-  --primary: #2563eb;
-  --primary-d: #1d4ed8;
+  --faint: #94a3b8;
+  --border: #e6eaf2;
+  --border-strong: #d4dbe8;
+
+  /* ブランド（インディゴ系・少しリッチに） */
+  --primary: #4f46e5;
+  --primary-d: #4338ca;
+  --primary-l: #eef2ff;
+  --primary-rgb: 79, 70, 229;
+
+  /* ステータス色 */
   --red: #dc2626;
   --red-bg: #fef2f2;
   --amber: #b45309;
@@ -13,6 +23,15 @@
   --green: #15803d;
   --green-bg: #f0fdf4;
   --gray: #94a3b8;
+  --sky: #0284c7;
+  --sky-bg: #eff6ff;
+
+  /* 影・角丸 */
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 6px 20px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 24px 60px rgba(15, 23, 42, 0.22);
+  --radius: 14px;
+  --radius-sm: 9px;
 
   font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Kaku Gothic ProN',
     'Noto Sans JP', Meiryo, sans-serif;
@@ -32,10 +51,16 @@ body,
 }
 
 body {
-  background: var(--bg);
+  /* やわらかいグラデーション背景でのっぺり感をなくす */
+  background:
+    radial-gradient(1200px 600px at 100% -10%, rgba(var(--primary-rgb), 0.1), transparent 60%),
+    radial-gradient(900px 500px at -10% 0%, rgba(2, 132, 199, 0.08), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button {

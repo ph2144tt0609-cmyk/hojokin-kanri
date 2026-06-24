@@ -76,6 +76,7 @@ export function Login() {
   return (
     <div className="login-screen">
       <form className="login-card" onSubmit={handleSubmit}>
+        <div className="login-logo" aria-hidden="true">¥</div>
         <h1 className="login-title">補助金管理</h1>
         <p className="login-sub">
           {isSignup ? 'アカウントを新規作成' : 'ログインしてください'}
