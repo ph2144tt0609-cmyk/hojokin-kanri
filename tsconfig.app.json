@@ -14,6 +14,9 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    /* 経営ダッシュボード（src/dashboard/*.jsx）は元アプリからそのまま持ち込んでいるので JS を許可する */
+    "allowJs": true,
+    "checkJs": false,
 
     /* Linting */
     "noUnusedLocals": true,

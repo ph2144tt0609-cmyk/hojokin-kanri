@@ -10,46 +10,35 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import { supabase } from '../supabase'
+import { cloudLoad, cloudSave, CLOUD_KEYS } from '../cloud'
+import { loadDashboardReceipts } from '../dashboardReceipts'
+import {
+  DEFAULT_HOURS,
+  FIRST_YM,
+  PHARMACY_NAMES,
+  ROLES,
+  YEN_PER_POINT,
+  defaultState,
+  fiscalLabel,
+  migrateBaseup,
+  nextYm,
+  pointsForMonth,
+  projection,
+  resolveMonths,
+  shortYm,
+  staffAmounts,
+  yen,
+} from '../baseupCalc'
+import type { BStaff, BaseupState, ReceiptsByShop, ResolvedMonth } from '../baseupCalc'
 import '../Baseup.css'
 
 // 調剤ベースアップ評価料 月次管理（令和8年度改定）
-//   収入 = 処方箋受付回数 × 点数(4点→2027-06以降8点) × 10円
-//   賃金改善 = Σ(職員の月額ベア額) × 係数(既定1.29)
-//   受付回数が未入力(0)の月は集計から除外。
-
-const YEN_PER_POINT = 10
-const DOUBLE_FROM = '2027-06'
-const POINT_BASE = 4
-
-interface BMonth {
-  ym: string
-  receipts: number
-}
-interface BStaff {
-  id: number
-  name: string
-  role: string
-  baseUp: number
-  startYm: string
-}
-interface BaseupState {
-  months: BMonth[]
-  staff: BStaff[]
-  factor: number
-}
-
-function pointsForMonth(ym: string) {
-  return ym >= DOUBLE_FROM ? POINT_BASE * 2 : POINT_BASE
-}
-function fiscalLabel(ym: string) {
-  return ym >= DOUBLE_FROM ? '令和9年度' : '令和8年度'
-}
-function shortYm(ym: string) {
-  const [y, m] = ym.split('-')
-  return `${y.slice(2)}/${Number(m)}`
-}
-const yen = (n: number) => Math.round(n).toLocaleString('ja-JP')
+// 収入と賃金改善の突合を表示・編集する画面。計算式は baseupCalc.ts 側にある。
+//
+// ・評価料は社員全体に配るものなので、職員・係数・判定は【法人1本】で管理する。
+//   収入の内訳だけは薬局別に見えるようにする（どの店でいくら算定したかは把握したいため）。
+// ・受付回数は入力しない。経営ダッシュボードタブの「処方箋枚数」を自動参照する
+//   （同じ数字なので、二度入力して食い違うのを防ぐ）。例外月だけ手動上書きできる。
 
 function today() {
   const d = new Date()
@@ -68,75 +57,76 @@ function download(filename: string, text: string, mime = 'text/plain;charset=utf
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
-function nextYm(ym: string) {
-  let [y, m] = ym.split('-').map(Number)
-  m++
-  if (m > 12) {
-    m = 1
-    y++
-  }
-  return `${y}-${String(m).padStart(2, '0')}`
-}
-
-const SAMPLE_RECEIPTS = [
-  1400, 1450, 1500, 1450, 1400, 1450, 1500, 1450, 1400, 1450, 1500, 1450,
-]
-function buildDefaultMonths(): BMonth[] {
-  const out: BMonth[] = []
-  let y = 2026,
-    m = 6
-  for (let i = 0; i < 12; i++) {
-    const ym = `${y}-${String(m).padStart(2, '0')}`
-    out.push({ ym, receipts: SAMPLE_RECEIPTS[i] ?? 0 })
-    m++
-    if (m > 12) {
-      m = 1
-      y++
-    }
-  }
-  return out
-}
-const DEFAULT_STAFF: BStaff[] = [
-  { id: 1, name: '薬剤師A', role: '薬剤師', baseUp: 16000, startYm: '2026-06' },
-  { id: 2, name: '薬剤師B', role: '薬剤師', baseUp: 15000, startYm: '2026-06' },
-  { id: 3, name: '事務A', role: '事務職員', baseUp: 16000, startYm: '2026-06' },
-]
-const ROLES = ['薬剤師', '事務職員', 'その他']
-
-function defaultState(): BaseupState {
-  return { months: buildDefaultMonths(), staff: DEFAULT_STAFF, factor: 1.29 }
-}
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
-// ── 読み込み・保存（Supabase: baseup_state にユーザー単位で1件） ──────────
+// 移行前データの控え（この端末）。クラウド側の控えは CLOUD_KEYS.baseupBackupV3。
+const BACKUP_KEY = 'baseup-backup-v3'
+const NOTICE_KEY = 'baseup-merged-notice-v4'
+
+// 内訳列の並びは PHARMACY_NAMES 順。そこに無い薬局は後ろへ。
+const sortShops = (names: string[]) =>
+  [...names].sort((a, b) => {
+    const ia = PHARMACY_NAMES.indexOf(a)
+    const ib = PHARMACY_NAMES.indexOf(b)
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+  })
+
+// ── 読み込み・保存（Supabase: app_state に合言葉で暗号化して1件） ──────────
 export function BaseupTab() {
   const [state, setState] = useState<BaseupState | null>(null)
+  const [receipts, setReceipts] = useState<ReceiptsByShop>({})
+  const [shops, setShops] = useState<string[]>([])
+  const [notice, setNotice] = useState<{ backup: string; cloudSaved: boolean } | null>(null)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
-  const uidRef = useRef<string | null>(null)
   const skipNextSave = useRef(true)
 
   useEffect(() => {
     let alive = true
     ;(async () => {
-      const { data: u } = await supabase.auth.getUser()
-      uidRef.current = u.user?.id ?? null
-      const { data, error } = await supabase
-        .from('baseup_state')
-        .select('data')
-        .maybeSingle()
-      if (error) console.error(error)
-      if (!alive) return
-      const loaded = data?.data as Partial<BaseupState> | undefined
-      if (loaded && Array.isArray(loaded.months) && Array.isArray(loaded.staff)) {
-        setState({
-          months: loaded.months,
-          staff: loaded.staff,
-          factor: typeof loaded.factor === 'number' ? loaded.factor : 1.29,
-        })
-      } else {
-        setState(defaultState())
+      // 経営ダッシュボードの処方箋枚数（＝算定回数）を読む
+      try {
+        const r = await loadDashboardReceipts()
+        if (alive) {
+          setReceipts(r.receipts)
+          setShops(sortShops(r.shops.length ? r.shops : PHARMACY_NAMES))
+        }
+      } catch {
+        if (alive) setShops(PHARMACY_NAMES)
       }
+
+      const saved = await cloudLoad<unknown>(CLOUD_KEYS.baseup)
+      const m = migrateBaseup(saved)
+
+      // 薬局別（v3）→ 法人1本（v4）への移行。
+      // 上書きする前に、必ず移行前データの控えを取ってから切り替える。
+      if (m?.mergedFromShops) {
+        const backup = JSON.stringify(saved, null, 2)
+        try {
+          localStorage.setItem(BACKUP_KEY, backup)
+          localStorage.setItem(NOTICE_KEY, '1')
+        } catch {
+          /* 保存できなくても続ける（控えはクラウド側にも置く） */
+        }
+        const cloudSaved = await cloudSave(CLOUD_KEYS.baseupBackupV3, saved)
+        // 控えが取れてから新しい形で保存し直す（移行は1回きり）
+        await cloudSave(CLOUD_KEYS.baseup, m.state)
+        if (alive) setNotice({ backup, cloudSaved })
+      } else {
+        // 前回の移行のお知らせがまだ閉じられていなければ出し続ける
+        const read = (key: string) => {
+          try {
+            return localStorage.getItem(key) || ''
+          } catch {
+            return ''
+          }
+        }
+        if (alive && read(NOTICE_KEY) === '1')
+          setNotice({ backup: read(BACKUP_KEY), cloudSaved: true })
+      }
+
+      if (!alive) return
+      setState(m?.state ?? defaultState())
     })()
     return () => {
       alive = false
@@ -152,126 +142,302 @@ export function BaseupTab() {
     }
     const t = setTimeout(() => {
       setSaveStatus('saving')
-      supabase
-        .from('baseup_state')
-        .upsert(
-          {
-            user_id: uidRef.current,
-            data: state,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: 'user_id' },
-        )
-        .then(({ error }) => {
-          if (error) {
-            console.error(error)
-            setSaveStatus('error')
-          } else {
-            setSaveStatus('saved')
-            // 2.5秒後にトースト表示を消す
-            window.setTimeout(() => setSaveStatus('idle'), 2500)
-          }
-        })
+      cloudSave(CLOUD_KEYS.baseup, state).then((ok) => {
+        if (!ok) {
+          setSaveStatus('error')
+        } else {
+          setSaveStatus('saved')
+          // 2.5秒後にトースト表示を消す
+          window.setTimeout(() => setSaveStatus('idle'), 2500)
+        }
+      })
     }, 800)
     return () => clearTimeout(t)
   }, [state])
 
   if (!state) return <p className="muted center">読み込み中…</p>
-  return <BaseupView state={state} onChange={setState} saveStatus={saveStatus} />
+
+  const closeNotice = () => {
+    try {
+      localStorage.removeItem(NOTICE_KEY)
+    } catch {
+      /* 無視 */
+    }
+    setNotice(null)
+  }
+
+  return (
+    <div className="baseup">
+      {notice && (
+        <div className="notice">
+          <div>
+            <b>薬局ごとの管理をやめ、法人1本にまとめました。</b>
+            評価料は社員全体に配るものなので、職員・係数・判定は法人でまとめて見ます
+            （収入の内訳は月次明細で薬局別に確認できます）。
+            <br />
+            緑ヶ丘・鷹匠それぞれに登録していた<b>職員はすべて残してあります</b>
+            （同じ方が二重に入っている場合は、下の職員表で不要な行を削除してください）。
+            <br />
+            移行前のデータは
+            {notice.cloudSaved ? 'クラウドとこの端末に控えてあります' : 'この端末に控えてあります'}。
+            {notice.backup && (
+              <>
+                {' '}
+                <button
+                  className="btn ghost"
+                  onClick={() =>
+                    download(`ベースアップ_移行前バックアップ_${today()}.json`, notice.backup, 'application/json')
+                  }
+                >
+                  移行前データをJSONで保存
+                </button>
+              </>
+            )}
+          </div>
+          <button className="btn ghost" onClick={closeNotice}>
+            閉じる
+          </button>
+        </div>
+      )}
+
+      <BaseupView
+        state={state}
+        receipts={receipts}
+        shops={shops}
+        onChange={setState}
+        saveStatus={saveStatus}
+      />
+    </div>
+  )
 }
 
 // ── 表示・編集 ────────────────────────────────────────────────
 function BaseupView({
   state,
+  receipts,
+  shops,
   onChange,
   saveStatus,
 }: {
   state: BaseupState
+  receipts: ReceiptsByShop
+  shops: string[]
   onChange: (next: BaseupState) => void
   saveStatus: SaveStatus
 }) {
-  const { months, staff, factor } = state
+  const { staff, factor, overtimeRate } = state
+  const [showShops, setShowShops] = useState(true)
 
-  const rows = useMemo(() => {
-    let cumIncome = 0
-    let cumImprove = 0
-    return months.map((mo) => {
-      const entered = (Number(mo.receipts) || 0) > 0
-      const pts = pointsForMonth(mo.ym)
-      const income = entered ? mo.receipts * pts * YEN_PER_POINT : 0
-      const baseUpSum = staff
-        .filter((s) => (s.startYm || '0000-00') <= mo.ym)
-        .reduce((a, s) => a + (Number(s.baseUp) || 0), 0)
-      const improve = entered ? baseUpSum * factor : 0
-      if (entered) {
-        cumIncome += income
-        cumImprove += improve
-      }
-      return {
-        ...mo,
-        entered,
-        pts,
-        income,
-        improve,
-        diff: improve - income,
-        cumIncome,
-        cumImprove,
-        cumDiff: cumImprove - cumIncome,
-      }
-    })
-  }, [months, staff, factor])
+  // 受付回数を確定させる（手動上書きの月以外は経営ダッシュボードの値）
+  const resolved = useMemo(() => resolveMonths(state, receipts), [state, receipts])
+
+  type Row = ResolvedMonth & {
+    pts: number
+    income: number
+    incomeByShop: Record<string, number>
+    bea: number
+    allowance: number
+    overtime: number
+    surcharge: number
+    improve: number
+    diff: number
+    cumIncome: number
+    cumImprove: number
+    cumDiff: number
+  }
+  // 累計はreduceのアキュムレータで持ち回る（レンダー中の変数再代入を避ける）
+  const rows = useMemo(
+    () =>
+      resolved.reduce<{ list: Row[]; cumIncome: number; cumImprove: number }>(
+        (acc, mo) => {
+          const pts = pointsForMonth(mo.ym)
+          const income = mo.entered ? mo.receipts * pts * YEN_PER_POINT : 0
+          // 薬局別の収入＝その薬局の受付回数 × 点数 × 10円（点数は法人共通）
+          const incomeByShop: Record<string, number> = {}
+          Object.entries(mo.byShop).forEach(([name, n]) => {
+            incomeByShop[name] = n * pts * YEN_PER_POINT
+          })
+
+          // 適用開始月を迎えた職員だけを、その月の賃金改善に算入する
+          const active = staff.filter((s) => (s.startYm || '0000-00') <= mo.ym)
+          const sums = mo.entered
+            ? active.reduce(
+                (t, s) => {
+                  const a = staffAmounts(s, factor, overtimeRate)
+                  return {
+                    bea: t.bea + a.bea,
+                    allowance: t.allowance + a.allowance,
+                    overtime: t.overtime + a.overtime,
+                    surcharge: t.surcharge + a.surcharge,
+                    improve: t.improve + a.charged,
+                  }
+                },
+                { bea: 0, allowance: 0, overtime: 0, surcharge: 0, improve: 0 },
+              )
+            : { bea: 0, allowance: 0, overtime: 0, surcharge: 0, improve: 0 }
+
+          const cumIncome = acc.cumIncome + income
+          const cumImprove = acc.cumImprove + sums.improve
+          acc.list.push({
+            ...mo,
+            pts,
+            income,
+            incomeByShop,
+            ...sums,
+            diff: sums.improve - income,
+            cumIncome,
+            cumImprove,
+            cumDiff: cumImprove - cumIncome,
+          })
+          return { list: acc.list, cumIncome, cumImprove }
+        },
+        { list: [], cumIncome: 0, cumImprove: 0 },
+      ).list,
+    [resolved, staff, factor, overtimeRate],
+  )
 
   const enteredRows = useMemo(() => rows.filter((r) => r.entered), [rows])
 
   const totals = useMemo(() => {
-    const income = enteredRows.reduce((a, r) => a + r.income, 0)
-    const improve = enteredRows.reduce((a, r) => a + r.improve, 0)
-    const rate = income > 0 ? (improve / income) * 100 : 0
-    return { income, improve, diff: improve - income, rate, ok: improve >= income, count: enteredRows.length }
-  }, [enteredRows])
+    const sum = (f: (r: Row) => number) => enteredRows.reduce((a, r) => a + f(r), 0)
+    const income = sum((r) => r.income)
+    const improve = sum((r) => r.improve)
+    // 薬局別の受付回数・収入の累計（内訳表示用）
+    const byShop: Record<string, { receipts: number; income: number }> = {}
+    shops.forEach((name) => {
+      byShop[name] = { receipts: 0, income: 0 }
+    })
+    enteredRows.forEach((r) => {
+      Object.entries(r.byShop).forEach(([name, n]) => {
+        if (!byShop[name]) byShop[name] = { receipts: 0, income: 0 }
+        byShop[name].receipts += n
+        byShop[name].income += r.incomeByShop[name] || 0
+      })
+    })
+    return {
+      income,
+      improve,
+      bea: sum((r) => r.bea),
+      allowance: sum((r) => r.allowance),
+      overtime: sum((r) => r.overtime),
+      surcharge: sum((r) => r.surcharge),
+      receipts: sum((r) => r.receipts),
+      byShop,
+      diff: improve - income,
+      rate: income > 0 ? (improve / income) * 100 : 0,
+      ok: improve >= income,
+      count: enteredRows.length,
+    }
+  }, [enteredRows, shops])
 
   const byFiscal = useMemo(() => {
-    const map = new Map<string, { fiscal: string; receipts: number; income: number; improve: number }>()
+    const map = new Map<
+      string,
+      {
+        fiscal: string
+        receipts: number
+        income: number
+        bea: number
+        allowance: number
+        overtime: number
+        surcharge: number
+        improve: number
+      }
+    >()
     enteredRows.forEach((r) => {
       const k = fiscalLabel(r.ym)
-      const g = map.get(k) ?? { fiscal: k, receipts: 0, income: 0, improve: 0 }
+      const g = map.get(k) ?? {
+        fiscal: k,
+        receipts: 0,
+        income: 0,
+        bea: 0,
+        allowance: 0,
+        overtime: 0,
+        surcharge: 0,
+        improve: 0,
+      }
       g.receipts += r.receipts || 0
       g.income += r.income
+      g.bea += r.bea
+      g.allowance += r.allowance
+      g.overtime += r.overtime
+      g.surcharge += r.surcharge
       g.improve += r.improve
       map.set(k, g)
     })
     return [...map.values()]
   }, [enteredRows])
 
+  // グラフは賃金改善の中身（ベア/手当/残業/法定福利費）を積み上げで見せる
   const chartData = useMemo(
     () =>
       enteredRows.map((r) => ({
         name: shortYm(r.ym),
         収入: Math.round(r.income),
-        賃金改善: Math.round(r.improve),
+        ベア: Math.round(r.bea),
+        手当: Math.round(r.allowance),
+        残業: Math.round(r.overtime),
+        法定福利費: Math.round(r.surcharge),
         累計差額: Math.round(r.cumDiff),
       })),
     [enteredRows],
   )
 
-  // 編集ハンドラ（state をまるごと差し替えて onChange）
-  const setReceipts = (i: number, v: string) =>
+  // 全期間の着地見込み（未入力月を平均受付回数で補完）
+  const proj = useMemo(() => projection(state, resolved), [state, resolved])
+
+  const staffTotal = useMemo(
+    () =>
+      staff.reduce(
+        (a, s) => {
+          const x = staffAmounts(s, factor, overtimeRate)
+          return {
+            bea: a.bea + x.bea,
+            allowance: a.allowance + x.allowance,
+            overtime: a.overtime + x.overtime,
+            surcharge: a.surcharge + x.surcharge,
+            charged: a.charged + x.charged,
+          }
+        },
+        { bea: 0, allowance: 0, overtime: 0, surcharge: 0, charged: 0 },
+      ),
+    [staff, factor, overtimeRate],
+  )
+
+  // ── 編集ハンドラ（state をまるごと差し替えて onChange） ──
+  // 手動上書きの切替。自動値を初期値として渡すので、実数から手直しできる。
+  const setManual = (ym: string, on: boolean, seedValue = 0) => {
+    const exists = state.months.some((m) => m.ym === ym)
+    const months = exists
+      ? state.months.map((m) =>
+          m.ym === ym ? { ...m, manual: on, receipts: on ? seedValue : 0 } : m,
+        )
+      : [...state.months, { ym, manual: on, receipts: on ? seedValue : 0 }]
+    onChange({ ...state, months: months.sort((a, b) => a.ym.localeCompare(b.ym)) })
+  }
+  const setReceipts = (ym: string, v: string) =>
     onChange({
       ...state,
-      months: months.map((row, idx) =>
-        idx === i ? { ...row, receipts: v === '' ? 0 : Number(v) } : row,
+      months: state.months.map((m) =>
+        m.ym === ym ? { ...m, receipts: v === '' ? 0 : Math.max(0, Number(v) || 0) } : m,
       ),
     })
-  const addMonth = () =>
+  const addMonth = () => {
+    const last = rows.length ? rows[rows.length - 1].ym : null
+    const ym = last ? nextYm(last) : FIRST_YM
+    if (state.months.some((m) => m.ym === ym)) return
     onChange({
       ...state,
-      months: [
-        ...months,
-        { ym: months.length ? nextYm(months[months.length - 1].ym) : '2026-06', receipts: 0 },
-      ],
+      months: [...state.months, { ym, receipts: 0, manual: false }].sort((a, b) =>
+        a.ym.localeCompare(b.ym),
+      ),
     })
+  }
   const removeMonth = () =>
-    onChange({ ...state, months: months.length > 1 ? months.slice(0, -1) : months })
+    onChange({
+      ...state,
+      months: state.months.length > 1 ? state.months.slice(0, -1) : state.months,
+    })
 
   const updStaff = (id: number, key: keyof BStaff, v: string | number) =>
     onChange({ ...state, staff: staff.map((x) => (x.id === id ? { ...x, [key]: v } : x)) })
@@ -285,26 +451,42 @@ function BaseupView({
           name: '',
           role: '薬剤師',
           baseUp: 0,
-          startYm: months[0]?.ym ?? '2026-06',
+          allowance: 0,
+          monthlyHours: DEFAULT_HOURS,
+          overtimeHours: 0,
+          startYm: rows[0]?.ym ?? FIRST_YM,
         },
       ],
     })
   const delStaff = (id: number) =>
     onChange({ ...state, staff: staff.filter((x) => x.id !== id) })
   const setFactor = (f: number) => onChange({ ...state, factor: f })
+  const setOvertimeRate = (r: number) => onChange({ ...state, overtimeRate: r })
 
   const resetAll = () => {
-    if (!window.confirm('入力内容を初期サンプルに戻します。よろしいですか？')) return
+    if (
+      !window.confirm(
+        '職員・係数・手動上書きを初期サンプルに戻します。よろしいですか？\n（経営ダッシュボードの処方箋枚数はそのままです）',
+      )
+    )
+      return
     onChange(defaultState())
   }
 
   const exportCsv = () => {
     const head = [
       '算定月',
-      '処方箋受付回数',
+      ...shops.map((s) => `${s} 受付回数`),
+      '合計 受付回数',
+      '受付回数の入力方法',
       '点数',
-      '評価料収入(円)',
-      '賃金改善(円)',
+      ...shops.map((s) => `${s} 収入(円)`),
+      '合計 評価料収入(円)',
+      'ベア相当額(円)',
+      'ベースアップ手当(円)',
+      '残業代増額分(円)',
+      `増加分法定福利費(円・${((factor - 1) * 100).toFixed(1)}%)`,
+      `賃金改善(円・×${factor})`,
       '当月差額(円)',
       '累計差額(円)',
       '状態',
@@ -312,9 +494,16 @@ function BaseupView({
     const lines = rows.map((r) =>
       [
         r.ym,
+        ...shops.map((s) => (r.byShop[s] ? r.byShop[s] : '')),
         r.entered ? r.receipts : '',
+        r.manual ? '手入力' : '経営ダッシュボード',
         r.pts,
+        ...shops.map((s) => (r.incomeByShop[s] ? Math.round(r.incomeByShop[s]) : '')),
         r.entered ? Math.round(r.income) : '',
+        r.entered ? Math.round(r.bea) : '',
+        r.entered ? Math.round(r.allowance) : '',
+        r.entered ? Math.round(r.overtime) : '',
+        r.entered ? Math.round(r.surcharge) : '',
         r.entered ? Math.round(r.improve) : '',
         r.entered ? Math.round(r.diff) : '',
         r.entered ? Math.round(r.cumDiff) : '',
@@ -322,22 +511,26 @@ function BaseupView({
       ].join(','),
     )
     const csv = '﻿' + [head.join(','), ...lines].join('\r\n')
-    download(`ベースアップ管理_月次明細_${today()}.csv`, csv, 'text/csv;charset=utf-8')
+    download(`ベースアップ管理_月次明細_法人合算_${today()}.csv`, csv, 'text/csv;charset=utf-8')
   }
 
   const nowPoints = pointsForMonth(
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
   )
+  const autoCount = rows.filter((r) => r.entered && !r.manual).length
+  const manualCount = rows.filter((r) => r.manual).length
 
   return (
     <div className="baseup">
       <div className="app-head">
         <p>
           算定で得た収入（処方箋受付 × 点数 × 10円）と、職員の賃金改善額を突き合わせ、
-          充当不足がないかを管理します。
+          充当不足がないかを管理します。評価料は社員全体に配るため、
+          <b>法人（緑ヶ丘＋鷹匠）でまとめて</b>管理します（収入の内訳は月次明細で薬局別に確認できます）。
         </p>
         <p className="note" style={{ marginTop: 4 }}>
-          ※ 入力した内容は自動で保存されます（保存の状況は画面右下に表示）。
+          ※ 処方箋受付回数は<b>経営ダッシュボードタブの処方箋枚数を自動参照</b>します（入力は1か所だけ）。
+          入力した内容は自動で保存されます（保存の状況は画面右下に表示）。
         </p>
       </div>
 
@@ -355,6 +548,14 @@ function BaseupView({
             {yen(totals.income)}
             <small> 円</small>
           </div>
+          <div className="note breakdown">
+            {shops.map((s) => (
+              <span key={s}>
+                {s} {yen(totals.byShop[s]?.income || 0)}
+                <br />
+              </span>
+            ))}
+          </div>
         </div>
         <div className="stat">
           <div className="label">累計 賃金改善額（充当）</div>
@@ -362,12 +563,31 @@ function BaseupView({
             {yen(totals.improve)}
             <small> 円</small>
           </div>
+          <div className="note breakdown">
+            ベア {yen(totals.bea)} ／ 手当 {yen(totals.allowance)} ／ 残業 {yen(totals.overtime)}
+            <br />
+            小計 {yen(totals.bea + totals.allowance + totals.overtime)} ＋ 増加分法定福利費{' '}
+            <b>{yen(totals.surcharge)}</b>（{((factor - 1) * 100).toFixed(1)}%）
+          </div>
         </div>
         <div className="stat">
           <div className="label">充当率（改善 ÷ 収入）</div>
           <div className="value">
             {totals.rate.toFixed(1)}
             <small> %</small>
+          </div>
+          <div
+            className="rate-bar"
+            role="img"
+            aria-label={`充当率 ${totals.rate.toFixed(1)}%（100%以上で適合）`}
+          >
+            <div
+              className={'rate-fill ' + (totals.ok ? 'ok' : 'warn')}
+              style={{ width: `${Math.min(totals.rate, 100)}%` }}
+            />
+          </div>
+          <div className="note" style={{ marginTop: 4 }}>
+            100% 以上で適合（バーが満タン＝収入を全額充当）
           </div>
         </div>
         <div className="stat">
@@ -383,15 +603,54 @@ function BaseupView({
         </div>
       </div>
 
+      {/* 着地見込み（未入力月を平均で補完した全期間の試算） */}
+      {proj && (
+        <div className={'insight ' + (proj.ok ? 'insight-ok' : 'insight-warn')}>
+          <span className="insight-title">
+            {proj.ok ? '✅' : '⚠️'} 全期間の着地見込み
+          </span>
+          {proj.pending > 0 ? (
+            <>
+              未入力{proj.pending}か月を平均受付 {yen(proj.avgReceipts)} 回/月で補完すると、
+              収入 {yen(proj.income)} 円 ／ 賃金改善 {yen(proj.improve)} 円 →{' '}
+              <b>
+                {proj.ok
+                  ? `適合見込み（余裕 ${yen(proj.diff)} 円）`
+                  : `不足見込み ${yen(-proj.diff)} 円`}
+              </b>
+            </>
+          ) : (
+            <>
+              全月入力済み — 収入 {yen(proj.income)} 円 ／ 賃金改善 {yen(proj.improve)} 円 →{' '}
+              <b>{proj.ok ? `適合（余裕 ${yen(proj.diff)} 円）` : `不足 ${yen(-proj.diff)} 円`}</b>
+            </>
+          )}
+          {!proj.ok && proj.pending > 0 && (
+            <span className="insight-hint">
+              💡 適合の目安：未入力の各月に 月額あと約{' '}
+              <b>{yen(Math.ceil(proj.needMonthly / 100) * 100)} 円</b>{' '}
+              の賃上げ（ベア・手当・残業の小計。増加分法定福利費{((factor - 1) * 100).toFixed(1)}%は自動上乗せ）で解消できます
+            </span>
+          )}
+          {!proj.ok && proj.pending === 0 && (
+            <span className="insight-hint">
+              💡 期間内の遡及賃上げや手当の上乗せなど、追加の賃金改善をご検討ください
+            </span>
+          )}
+        </div>
+      )}
+
       {/* グラフ */}
       <section className="card">
         <h2>
-          <span className="num">1</span>月次推移（収入 vs 賃金改善・累計差額）
+          <span className="num">1</span>月次推移（収入 vs 賃金改善の内訳・累計差額）
         </h2>
         {chartData.length === 0 ? (
-          <p className="note">受付回数を入力すると、月次の推移グラフが表示されます。</p>
+          <p className="note">
+            経営ダッシュボードタブに処方箋枚数が入ると、月次の推移グラフが表示されます。
+          </p>
         ) : (
-          <div style={{ width: '100%', height: 300 }}>
+          <div style={{ width: '100%', height: 320 }}>
             <ResponsiveContainer>
               <ComposedChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
                 <CartesianGrid stroke="#eaf2ef" vertical={false} />
@@ -400,51 +659,127 @@ function BaseupView({
                 <Tooltip formatter={(v) => `${yen(Number(v))} 円`} labelStyle={{ color: '#0a5e5d' }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Bar dataKey="収入" fill="#0e7c7b" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="賃金改善" fill="#9bd3c6" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="ベア" stackId="w" fill="#457b9d" />
+                <Bar dataKey="手当" stackId="w" fill="#8ecae6" />
+                <Bar dataKey="残業" stackId="w" fill="#ffb703" />
+                <Bar dataKey="法定福利費" stackId="w" fill="#b8c0c8" radius={[3, 3, 0, 0]} />
                 <Line type="monotone" dataKey="累計差額" stroke="#db5424" strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
         )}
         <p className="note">
-          棒：各月の収入と賃金改善額。折れ線：累計の差額（賃金改善−収入）。累計差額がマイナスに沈むと充当不足です。
+          濃い緑の棒＝収入（法人合算）。積み上げ棒＝賃金改善の内訳（ベア／手当／残業代増額分／増加分法定福利費）。
+          積み上げが収入の棒に届いていれば、その月は充当できています。折れ線＝累計差額（マイナスに沈むと充当不足）。
         </p>
       </section>
 
       {/* 月次明細 */}
       <section className="card">
         <h2>
-          <span className="num">2</span>月次明細（受付回数を入力）
+          <span className="num">2</span>月次明細（受付回数は経営ダッシュボードから自動参照）
         </h2>
+        <div className="detail-toolbar">
+          <label className="chk">
+            <input
+              type="checkbox"
+              checked={showShops}
+              onChange={(e) => setShowShops(e.target.checked)}
+            />
+            薬局別の内訳を表示（{shops.join('・')}）
+          </label>
+          <span className="note">
+            自動参照 {autoCount} か月{manualCount > 0 ? ` ／ 手入力 ${manualCount} か月` : ''}
+          </span>
+        </div>
         <div className="tbl-scroll">
           <table>
             <thead>
               <tr>
                 <th>算定月</th>
-                <th>処方箋受付回数</th>
+                {showShops &&
+                  shops.map((s) => (
+                    <th key={'rc-' + s} className="shop-col">
+                      {s}
+                      <br />
+                      受付回数
+                    </th>
+                  ))}
+                <th>合計 受付回数</th>
                 <th>点数</th>
-                <th>評価料収入(円)</th>
+                {showShops &&
+                  shops.map((s) => (
+                    <th key={'in-' + s} className="shop-col">
+                      {s}
+                      <br />
+                      収入(円)
+                    </th>
+                  ))}
+                <th>合計 収入(円)</th>
+                <th>ベア相当額</th>
+                <th>ベースアップ手当</th>
+                <th>残業代増額分</th>
+                <th>増加分法定福利費</th>
                 <th>賃金改善(円)</th>
                 <th>当月差額</th>
                 <th>累計差額</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {rows.map((r) => (
                 <tr key={r.ym} className={!r.entered ? 'pending' : r.cumDiff < 0 ? 'short' : ''}>
                   <td>{r.ym}</td>
-                  <td>
-                    <input
-                      type="number"
-                      min="0"
-                      aria-label={`${r.ym} の処方箋受付回数`}
-                      placeholder="未入力"
-                      value={r.receipts || ''}
-                      onChange={(e) => setReceipts(i, e.target.value)}
-                    />
+                  {showShops &&
+                    shops.map((s) => (
+                      <td key={'rc-' + s} className="shop-col">
+                        {r.manual ? '—' : r.byShop[s] ? yen(r.byShop[s]) : '未入力'}
+                      </td>
+                    ))}
+                  <td className="receipts-cell">
+                    {r.manual ? (
+                      <div className="receipts-manual">
+                        <input
+                          type="number"
+                          min="0"
+                          aria-label={`${r.ym} の処方箋受付回数（手入力）`}
+                          value={r.receipts || ''}
+                          onChange={(e) => setReceipts(r.ym, e.target.value)}
+                        />
+                        <span className="tag tag-manual">手入力</span>
+                        <button
+                          className="link-btn"
+                          onClick={() => setManual(r.ym, false)}
+                          title="経営ダッシュボードの処方箋枚数に戻します"
+                        >
+                          自動に戻す
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="receipts-auto">
+                        <b>{r.entered ? yen(r.receipts) : '未入力'}</b>
+                        {r.entered && <span className="tag tag-auto">自動</span>}
+                        <button
+                          className="link-btn"
+                          onClick={() => setManual(r.ym, true, r.receipts)}
+                          title="この月だけ手入力で上書きします"
+                        >
+                          手入力にする
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td>{r.pts}点</td>
+                  {showShops &&
+                    shops.map((s) => (
+                      <td key={'in-' + s} className="shop-col">
+                        {r.manual ? '—' : r.incomeByShop[s] ? yen(r.incomeByShop[s]) : '—'}
+                      </td>
+                    ))}
                   <td>{r.entered ? yen(r.income) : '—'}</td>
+                  <td>{r.entered ? yen(r.bea) : '—'}</td>
+                  <td>{r.entered ? yen(r.allowance) : '—'}</td>
+                  <td>{r.entered ? yen(r.overtime) : '—'}</td>
+                  <td>{r.entered ? yen(r.surcharge) : '—'}</td>
                   <td>{r.entered ? yen(r.improve) : '—'}</td>
                   <td style={{ color: !r.entered ? '#9aa8a8' : r.diff < 0 ? '#b4341f' : '#137a4b' }}>
                     {!r.entered ? '—' : `${r.diff >= 0 ? '+' : ''}${yen(r.diff)}`}
@@ -458,9 +793,25 @@ function BaseupView({
             <tfoot>
               <tr>
                 <td>合計（入力済）</td>
-                <td>{yen(enteredRows.reduce((a, r) => a + (r.receipts || 0), 0))}</td>
+                {showShops &&
+                  shops.map((s) => (
+                    <td key={'rc-' + s} className="shop-col">
+                      {yen(totals.byShop[s]?.receipts || 0)}
+                    </td>
+                  ))}
+                <td>{yen(totals.receipts)}</td>
                 <td>—</td>
+                {showShops &&
+                  shops.map((s) => (
+                    <td key={'in-' + s} className="shop-col">
+                      {yen(totals.byShop[s]?.income || 0)}
+                    </td>
+                  ))}
                 <td>{yen(totals.income)}</td>
+                <td>{yen(totals.bea)}</td>
+                <td>{yen(totals.allowance)}</td>
+                <td>{yen(totals.overtime)}</td>
+                <td>{yen(totals.surcharge)}</td>
                 <td>{yen(totals.improve)}</td>
                 <td colSpan={2}>
                   {totals.ok ? '+' : ''}
@@ -479,14 +830,23 @@ function BaseupView({
           </button>
         </div>
         <p className="note">
-          点数は 2026-06〜2027-05 が <b>4点</b>、2027-06（令和9年6月）以降は <b>8点</b>（200%）に自動切替（1点＝10円）。受付回数が空の月は「未入力」として集計から除外します。
+          受付回数は<b>経営ダッシュボードタブの処方箋枚数</b>（＝レセコン日計明細で「介護等除く」が1以上の行数）を
+          そのまま使います。同じ数字なので、こちらで入力し直す必要はありません。
+          ダッシュボードに無い月は「未入力」として集計から除外します。
+          <br />
+          例外的に数字が食い違う月・ダッシュボードに無い過去月は「手入力にする」で上書きできます（
+          <span className="tag tag-manual">手入力</span> と表示されます）。「自動に戻す」でいつでも元に戻せます。
+          <br />
+          点数は 2026-06〜2027-05 が <b>4点</b>、2027-06（令和9年6月）以降は <b>8点</b>（200%）に自動切替（1点＝10円）。
+          <br />
+          <b>ベア相当額＋ベースアップ手当＋残業代増額分＋増加分法定福利費＝賃金改善</b>（増加分法定福利費＝社会保険料など事業主負担の増加分で、その3つの合計の{((factor - 1) * 100).toFixed(1)}%）。
         </p>
       </section>
 
       {/* 職員 */}
       <section className="card">
         <h2>
-          <span className="num">3</span>対象職員の賃上げ（月額ベア額）
+          <span className="num">3</span>対象職員の賃上げ（法人全体・ベア相当額・ベースアップ手当・残業代増額分）
         </h2>
         <div className="tbl-scroll">
           <table className="staff-table">
@@ -494,67 +854,114 @@ function BaseupView({
               <tr>
                 <th>氏名</th>
                 <th>職種</th>
-                <th>月額ベア額(円)</th>
+                <th>ベア相当額(円)</th>
+                <th>ベースアップ手当(円)</th>
+                <th>所定労働(h/月)</th>
+                <th>残業(h/月)</th>
+                <th>残業代増額分(円)</th>
+                <th>増加分法定福利費(円)</th>
                 <th>適用開始月</th>
                 <th>充当/月(×{factor})</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {staff.map((s) => (
-                <tr key={s.id}>
-                  <td data-label="氏名">
-                    <input
-                      type="text"
-                      value={s.name}
-                      placeholder="氏名"
-                      aria-label="職員の氏名"
-                      onChange={(e) => updStaff(s.id, 'name', e.target.value)}
-                    />
-                  </td>
-                  <td data-label="職種">
-                    <select value={s.role} aria-label="職種" onChange={(e) => updStaff(s.id, 'role', e.target.value)}>
-                      {ROLES.map((r) => (
-                        <option key={r}>{r}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td data-label="月額ベア額(円)">
-                    <input
-                      type="number"
-                      min="0"
-                      aria-label="月額ベア額"
-                      value={s.baseUp || ''}
-                      onChange={(e) => updStaff(s.id, 'baseUp', Number(e.target.value) || 0)}
-                    />
-                  </td>
-                  <td data-label="適用開始月">
-                    <input
-                      type="month"
-                      aria-label="適用開始月"
-                      value={s.startYm}
-                      onChange={(e) => updStaff(s.id, 'startYm', e.target.value)}
-                    />
-                  </td>
-                  <td data-label="充当/月">{yen((Number(s.baseUp) || 0) * factor)}</td>
-                  <td className="staff-del-cell">
-                    <button className="btn del" onClick={() => delStaff(s.id)}>
-                      削除
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {staff.map((s) => {
+                const a = staffAmounts(s, factor, overtimeRate)
+                return (
+                  <tr key={s.id}>
+                    <td data-label="氏名">
+                      <input
+                        type="text"
+                        value={s.name}
+                        placeholder="氏名"
+                        aria-label="職員の氏名"
+                        onChange={(e) => updStaff(s.id, 'name', e.target.value)}
+                      />
+                      {s.origin && <span className="origin-tag">元：{s.origin}</span>}
+                    </td>
+                    <td data-label="職種">
+                      <select value={s.role} aria-label="職種" onChange={(e) => updStaff(s.id, 'role', e.target.value)}>
+                        {ROLES.map((r) => (
+                          <option key={r}>{r}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td data-label="ベア相当額(円)">
+                      <input
+                        type="number"
+                        min="0"
+                        aria-label="ベア相当額"
+                        value={s.baseUp || ''}
+                        onChange={(e) => updStaff(s.id, 'baseUp', Number(e.target.value) || 0)}
+                      />
+                    </td>
+                    <td data-label="ベースアップ手当(円)">
+                      <input
+                        type="number"
+                        min="0"
+                        aria-label="ベースアップ手当"
+                        value={s.allowance || ''}
+                        onChange={(e) => updStaff(s.id, 'allowance', Number(e.target.value) || 0)}
+                      />
+                    </td>
+                    <td data-label="所定労働(h/月)">
+                      <input
+                        className="hours"
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        aria-label="月平均所定労働時間"
+                        value={s.monthlyHours || ''}
+                        onChange={(e) =>
+                          updStaff(s.id, 'monthlyHours', Number(e.target.value) || 0)
+                        }
+                      />
+                    </td>
+                    <td data-label="残業(h/月)">
+                      <input
+                        className="hours"
+                        type="number"
+                        min="0"
+                        step="0.5"
+                        aria-label="月の残業時間"
+                        value={s.overtimeHours || ''}
+                        onChange={(e) =>
+                          updStaff(s.id, 'overtimeHours', Number(e.target.value) || 0)
+                        }
+                      />
+                    </td>
+                    <td data-label="残業代増額分(円)">{yen(a.overtime)}</td>
+                    <td data-label="増加分法定福利費(円)">{yen(a.surcharge)}</td>
+                    <td data-label="適用開始月">
+                      <input
+                        type="month"
+                        aria-label="適用開始月"
+                        value={s.startYm}
+                        onChange={(e) => updStaff(s.id, 'startYm', e.target.value)}
+                      />
+                    </td>
+                    <td data-label="充当/月">{yen(a.charged)}</td>
+                    <td className="staff-del-cell">
+                      <button className="btn del" onClick={() => delStaff(s.id)}>
+                        削除
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
             <tfoot>
               <tr>
                 <td colSpan={2}>合計</td>
-                <td data-label="月額ベア額 合計">
-                  {yen(staff.reduce((a, s) => a + (Number(s.baseUp) || 0), 0))}
-                </td>
+                <td data-label="ベア相当額 合計">{yen(staffTotal.bea)}</td>
+                <td data-label="ベースアップ手当 合計">{yen(staffTotal.allowance)}</td>
                 <td></td>
-                <td data-label="充当/月 合計">
-                  {yen(staff.reduce((a, s) => a + (Number(s.baseUp) || 0), 0) * factor)}
-                </td>
+                <td></td>
+                <td data-label="残業代増額分 合計">{yen(staffTotal.overtime)}</td>
+                <td data-label="増加分法定福利費 合計">{yen(staffTotal.surcharge)}</td>
+                <td></td>
+                <td data-label="充当/月 合計">{yen(staffTotal.charged)}</td>
                 <td></td>
               </tr>
             </tfoot>
@@ -565,26 +972,43 @@ function BaseupView({
             ＋ 職員を追加
           </button>
           <label className="field-row" style={{ marginLeft: 'auto' }}>
-            係数（法定福利費・連動賞与込み）
+            増加分法定福利費の係数
             <input
               type="number"
-              step="0.01"
+              step="0.001"
               min="1"
-              aria-label="係数"
+              aria-label="増加分法定福利費の係数"
               value={factor}
               onChange={(e) => setFactor(Number(e.target.value) || 1)}
             />
           </label>
+          <label className="field-row">
+            時間外割増率
+            <input
+              type="number"
+              step="0.05"
+              min="1"
+              aria-label="時間外割増率"
+              value={overtimeRate}
+              onChange={(e) => setOvertimeRate(Number(e.target.value) || 1)}
+            />
+          </label>
         </div>
         <p className="note">
-          「月額ベア額」は基本給等の引上げ分（月額）。これに係数{factor}（事業主負担の法定福利費＋連動する賞与の見込み）を掛けた額を賃金改善の充当額とみなします。実績報告では実額をご確認ください。
+          職員は<b>法人（緑ヶ丘＋鷹匠）でまとめて</b>登録します。「元：薬局名」は、薬局別に分けていた頃のデータの出どころです（同じ方が二重に入っていたら片方を削除してください）。
+          <br />
+          <b>ベア相当額</b>＝基本給等の引上げ分（月額）。<b>ベースアップ手当</b>＝手当として支給している分（月額）。この2つは別枠で集計します。
+          <br />
+          <b>残業代増額分</b>＝（ベア相当額＋ベースアップ手当）÷ 月平均所定労働時間 × 割増率{overtimeRate} × 残業時間。ベアで時間単価が上がった分だけ残業代も増えるため、その増額分を賃金改善に算入します。
+          <br />
+          この3つの合計に、増加分法定福利費の係数 <b>{factor}</b>（＝{((factor - 1) * 100).toFixed(1)}%・社会保険料など事業主負担の増加分。厚労省Q&Aで一律16.5%の便宜計算が認められています）を掛けた額を充当額とみなします。実績報告では実額をご確認ください。
         </p>
       </section>
 
       {/* 年度サマリー */}
       <section className="card">
         <h2>
-          <span className="num">4</span>年度サマリー（実績報告の目安）
+          <span className="num">4</span>年度サマリー（実績報告の目安・法人合算）
         </h2>
         <div className="tbl-scroll">
           <table>
@@ -593,6 +1017,10 @@ function BaseupView({
                 <th>算定年度</th>
                 <th>受付回数 計</th>
                 <th>評価料収入 計(円)</th>
+                <th>ベア相当額 計</th>
+                <th>ベースアップ手当 計</th>
+                <th>残業代増額分 計</th>
+                <th>増加分法定福利費 計</th>
                 <th>賃金改善 計(円)</th>
                 <th>差額(改善−収入)</th>
                 <th>充当率</th>
@@ -601,8 +1029,8 @@ function BaseupView({
             <tbody>
               {byFiscal.length === 0 ? (
                 <tr className="pending">
-                  <td colSpan={6} style={{ textAlign: 'center' }}>
-                    受付回数を入力すると集計されます
+                  <td colSpan={10} style={{ textAlign: 'center' }}>
+                    経営ダッシュボードに処方箋枚数が入ると集計されます
                   </td>
                 </tr>
               ) : (
@@ -614,6 +1042,10 @@ function BaseupView({
                       <td>{g.fiscal}</td>
                       <td>{yen(g.receipts)}</td>
                       <td>{yen(g.income)}</td>
+                      <td>{yen(g.bea)}</td>
+                      <td>{yen(g.allowance)}</td>
+                      <td>{yen(g.overtime)}</td>
+                      <td>{yen(g.surcharge)}</td>
                       <td>{yen(g.improve)}</td>
                       <td style={{ color: diff < 0 ? '#b4341f' : '#137a4b' }}>
                         {diff >= 0 ? '+' : ''}
@@ -646,7 +1078,12 @@ function BaseupView({
           </button>
         </div>
         <p className="note">
-          入力データはログインアカウントにひも付けてクラウド（Supabase）に保存され、どの端末からでも同じ内容が見られます。現在の単価＝1点{YEN_PER_POINT}円／今月の点数＝{nowPoints}点。
+          <b>処方箋受付回数の入力欄はありません。</b>
+          経営ダッシュボードタブに月次データ（処方箋枚数）を入れれば、こちらへ自動で反映されます。
+          レセコンからの取り込みも経営ダッシュボード側で行ってください。
+        </p>
+        <p className="note">
+          職員・係数の入力内容は合言葉で暗号化してクラウド（Supabase）に保存され、どの端末からでも同じ内容が見られます。現在の単価＝1点{YEN_PER_POINT}円／今月の点数＝{nowPoints}点。
         </p>
       </section>
     </div>

@@ -15,6 +15,9 @@ dist-ssr
 # Supabase 接続情報（ローカルのみ・コミットしない）
 .env
 
+# 移行前データのバックアップ（経営数字・職員名を含むのでコミットしない）
+backup/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

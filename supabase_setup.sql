@@ -65,6 +65,25 @@ create policy "own rows followups"
   to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- 6. 合言葉方式の保存先（2026-08-04〜。ログインを廃止し、これ1本に集約） -------------
+--    中身は AES-256-GCM の暗号文だけ。合言葉を知らなければ復号できないので、
+--    anon（未ログイン）にも読み書きを許可している＝どの端末からでも合言葉ひとつで使える。
+--    key: 'subsidies'（補助金）/ 'baseup'（ベースアップ）/ 'dashboard-overrides'（経営ダッシュボードの手入力）
+create table if not exists public.app_state (
+  key        text primary key,
+  enc        jsonb       not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.app_state enable row level security;
+drop policy if exists "shared app_state" on public.app_state;
+create policy "shared app_state"
+  on public.app_state for all
+  to anon, authenticated
+  using (true) with check (true);
+
+-- ↓ここから下は「メール＋パスワードでログインしていた頃」のテーブル。
+--   引っ越し（画面の「以前のデータを取り込む」）が済むまで残しておく。
+
 -- 5. ベースアップ評価料の月次管理データ（ユーザーごとに1件・JSONでまとめて保存） -----
 create table if not exists public.baseup_state (
   user_id    uuid primary key default auth.uid() references auth.users(id) on delete cascade,

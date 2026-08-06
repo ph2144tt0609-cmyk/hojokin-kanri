@@ -1,24 +1,30 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { supabase } from './supabase'
-import { useSession, Login } from './auth'
+import { useEffect, useMemo, useState } from 'react'
 import type { Subsidy, Followup } from './types'
 import { SubsidyList } from './components/SubsidyList'
 import { SubsidyEditor } from './components/SubsidyEditor'
 import { BaseupTab } from './components/BaseupTab'
+import { Migrate } from './components/Migrate'
+import DashboardTab from './dashboard/DashboardTab.jsx'
+import { Gate } from './Gate'
+import { cloudLoad, cloudSave, CLOUD_KEYS, clearPass } from './cloud'
 import { yen } from './expiry'
 import './App.css'
 
+// 入り口は合言葉ひとつ（Gate）。
+// データは合言葉で暗号化して Supabase に置くので、ログイン（メール＋パスワード）は使わない。
 export default function App() {
-  const { session, loading } = useSession()
-  if (loading) return <div className="full-center muted">読み込み中…</div>
-  if (!session) return <Login />
-  return <Main email={session.user.email ?? ''} />
+  return (
+    <Gate>
+      <Main />
+    </Gate>
+  )
 }
 
-type Tab = 'hojokin' | 'baseup'
+type Tab = 'dashboard' | 'hojokin' | 'baseup'
 
-function Main({ email }: { email: string }) {
-  const [tab, setTab] = useState<Tab>('hojokin')
+function Main() {
+  const [tab, setTab] = useState<Tab>('dashboard')
+  const [migrating, setMigrating] = useState(false)
 
   return (
     <div className="app">
@@ -28,14 +34,28 @@ function Main({ email }: { email: string }) {
           薬局管理ツール
         </h1>
         <div className="topbar-right">
-          <span className="user-email">{email}</span>
-          <button className="btn-ghost" onClick={() => supabase.auth.signOut()}>
-            ログアウト
+          <button className="btn-ghost" onClick={() => setMigrating(true)}>
+            以前のデータを取り込む
+          </button>
+          <button
+            className="btn-ghost"
+            onClick={() => {
+              clearPass()
+              location.reload()
+            }}
+          >
+            合言葉を入れ直す
           </button>
         </div>
       </header>
 
       <nav className="tabbar">
+        <button
+          className={'tab' + (tab === 'dashboard' ? ' tab-active' : '')}
+          onClick={() => setTab('dashboard')}
+        >
+          経営ダッシュボード
+        </button>
         <button
           className={'tab' + (tab === 'hojokin' ? ' tab-active' : '')}
           onClick={() => setTab('hojokin')}
@@ -50,12 +70,16 @@ function Main({ email }: { email: string }) {
         </button>
       </nav>
 
-      {tab === 'hojokin' ? <SubsidiesTab /> : <BaseupTab />}
+      {tab === 'dashboard' ? <DashboardTab /> : tab === 'hojokin' ? <SubsidiesTab /> : <BaseupTab />}
+
+      {migrating && <Migrate onClose={() => setMigrating(false)} />}
     </div>
   )
 }
 
 // ── 補助金管理タブ ──────────────────────────────────────────────
+// 保存先は Supabase の app_state（合言葉で暗号化した1件）。
+// 件数が数十件の道具なので、絞り込み・並べ替えは画面側で行う。
 function SubsidiesTab() {
   const [subsidies, setSubsidies] = useState<Subsidy[]>([])
   const [filter, setFilter] = useState<string>('すべて')
@@ -64,31 +88,32 @@ function SubsidiesTab() {
   const [creating, setCreating] = useState(false)
   const [dataLoading, setDataLoading] = useState(true)
 
-  const load = useCallback(async () => {
-    setDataLoading(true)
-    const { data, error } = await supabase
-      .from('subsidies')
-      .select('*, followups(*)')
-      .order('deadline', { ascending: true, nullsFirst: false })
-    if (error) {
-      console.error(error)
-      alert('データの読み込みに失敗しました。接続情報やネットワークをご確認ください。')
-    } else {
-      setSubsidies((data ?? []) as Subsidy[])
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const rows = await cloudLoad<Subsidy[]>(CLOUD_KEYS.subsidies)
+      if (!alive) return
+      setSubsidies(Array.isArray(rows) ? rows : [])
+      setDataLoading(false)
+    })()
+    return () => {
+      alive = false
     }
-    setDataLoading(false)
   }, [])
 
-  useEffect(() => {
-    load()
-  }, [load])
+  // 画面の内容をそのままクラウドへ（暗号化して保存）
+  async function persist(next: Subsidy[]) {
+    setSubsidies(next)
+    const ok = await cloudSave(CLOUD_KEYS.subsidies, next)
+    if (!ok) alert('保存に失敗しました。通信の状況をご確認ください。')
+  }
 
   const filtered = useMemo(() => {
     if (filter === 'すべて') return subsidies
     return subsidies.filter((s) => s.department === filter)
   }, [subsidies, filter])
 
-  // 区分の一覧は、登録済みデータに実在する値から作る（ユーザーごとに自動で変わる）
+  // 区分の一覧は、登録済みデータに実在する値から作る
   const departments = useMemo(
     () => Array.from(new Set(subsidies.map((s) => s.department).filter(Boolean))),
     [subsidies],
@@ -112,7 +137,7 @@ function SubsidiesTab() {
     return arr
   }, [filtered, sort])
 
-  // まとめ（表示中の補助金の金額を集計）。申請済・振込済はステータスで判定。
+  // まとめ（表示中の補助金の金額を集計）
   const summary = useMemo(() => {
     let appliedSum = 0
     let paidSum = 0
@@ -124,127 +149,50 @@ function SubsidiesTab() {
     return { count: filtered.length, appliedSum, paidSum }
   }, [filtered])
 
-  async function handleSave(form: Subsidy, followups: Followup[]) {
-    const isNew = !form.id
-    const row = {
-      name: form.name,
-      department: form.department,
-      deadline: form.deadline,
-      applied: form.applied,
-      applied_at: form.applied_at,
-      decision: form.decision,
-      decision_at: form.decision_at,
-      paid: form.paid,
-      paid_at: form.paid_at,
-      amount: form.amount,
-      note: form.note,
+  const newId = () =>
+    typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : 'id-' + Math.abs(Date.now() ^ (performance.now() * 1000)).toString(36)
+
+  function buildRow(form: Subsidy, followups: Followup[], id: string): Subsidy {
+    return {
+      ...form,
+      id,
+      amount: Number(form.amount) || 0,
+      followups: followups.map((f) => ({
+        ...f,
+        id: f.id || newId(),
+        subsidy_id: id,
+      })),
       updated_at: new Date().toISOString(),
     }
+  }
 
-    let id = form.id
-    if (isNew) {
-      const { data, error } = await supabase
-        .from('subsidies')
-        .insert(row)
-        .select('id')
-        .single()
-      if (error || !data) {
-        console.error(error)
-        alert('保存に失敗しました')
-        return
-      }
-      id = data.id as string
-    } else {
-      const { error } = await supabase.from('subsidies').update(row).eq('id', id)
-      if (error) {
-        console.error(error)
-        alert('保存に失敗しました')
-        return
-      }
-    }
-
-    // 後追い提出物は「全削除 → 現在の内容を挿入」で入れ替える
-    await supabase.from('followups').delete().eq('subsidy_id', id)
-    if (followups.length) {
-      const rows = followups.map((f) => ({
-        subsidy_id: id,
-        name: f.name,
-        due_date: f.due_date,
-        done: f.done,
-        done_at: f.done_at,
-      }))
-      const { error } = await supabase.from('followups').insert(rows)
-      if (error) {
-        console.error(error)
-        alert('後追い提出物の保存に失敗しました')
-        return
-      }
-    }
-
+  async function handleSave(form: Subsidy, followups: Followup[]) {
+    const isNew = !form.id
+    const id = form.id || newId()
+    const row = buildRow(form, followups, id)
+    const next = isNew
+      ? [...subsidies, { ...row, created_at: new Date().toISOString() }]
+      : subsidies.map((s) => (s.id === id ? row : s))
     setEditing(null)
     setCreating(false)
-    await load()
+    await persist(next)
   }
 
   async function handleDelete(id: string) {
     if (!confirm('この補助金を削除します。よろしいですか？')) return
-    const { error } = await supabase.from('subsidies').delete().eq('id', id)
-    if (error) {
-      console.error(error)
-      alert('削除に失敗しました')
-      return
-    }
     setEditing(null)
-    await load()
+    await persist(subsidies.filter((s) => s.id !== id))
   }
 
   // いまの内容をコピーして新しい補助金を作り、そのコピーを編集画面で開く
   async function handleDuplicate(form: Subsidy, followups: Followup[]) {
-    const row = {
-      name: form.name,
-      department: form.department,
-      deadline: form.deadline,
-      applied: form.applied,
-      applied_at: form.applied_at,
-      decision: form.decision,
-      decision_at: form.decision_at,
-      paid: form.paid,
-      paid_at: form.paid_at,
-      amount: form.amount,
-      note: form.note,
-    }
-    const { data, error } = await supabase
-      .from('subsidies')
-      .insert(row)
-      .select('id')
-      .single()
-    if (error || !data) {
-      console.error(error)
-      alert('複製に失敗しました')
-      return
-    }
-    const newId = data.id as string
-    if (followups.length) {
-      const { error: fe } = await supabase.from('followups').insert(
-        followups.map((f) => ({
-          subsidy_id: newId,
-          name: f.name,
-          due_date: f.due_date,
-          done: f.done,
-          done_at: f.done_at,
-        })),
-      )
-      if (fe) console.error(fe)
-    }
-    await load()
-    // 複製したコピーを開く（区分などを変えやすく）
-    const { data: fresh } = await supabase
-      .from('subsidies')
-      .select('*, followups(*)')
-      .eq('id', newId)
-      .single()
+    const id = newId()
+    const copy = { ...buildRow(form, followups, id), created_at: new Date().toISOString() }
     setCreating(false)
-    setEditing((fresh as Subsidy) ?? null)
+    setEditing(copy)
+    await persist([...subsidies, copy])
   }
 
   return (
@@ -345,4 +293,3 @@ function SubsidiesTab() {
     </>
   )
 }
-
