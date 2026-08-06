@@ -20,7 +20,15 @@ export default function App() {
   )
 }
 
-type Tab = 'dashboard' | 'hojokin' | 'baseup'
+// 4つの道具を横並びにする（順番＝経営 → 調剤基本料 → ベースアップ → 補助金）
+type Tab = 'dashboard' | 'kihonryo' | 'baseup' | 'hojokin'
+
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'dashboard', label: '経営ダッシュボード' },
+  { key: 'kihonryo', label: '調剤基本料 判定' },
+  { key: 'baseup', label: 'ベースアップ評価料' },
+  { key: 'hojokin', label: '補助金管理' },
+]
 
 function Main() {
   const [tab, setTab] = useState<Tab>('dashboard')
@@ -50,27 +58,26 @@ function Main() {
       </header>
 
       <nav className="tabbar">
-        <button
-          className={'tab' + (tab === 'dashboard' ? ' tab-active' : '')}
-          onClick={() => setTab('dashboard')}
-        >
-          経営ダッシュボード
-        </button>
-        <button
-          className={'tab' + (tab === 'hojokin' ? ' tab-active' : '')}
-          onClick={() => setTab('hojokin')}
-        >
-          補助金管理
-        </button>
-        <button
-          className={'tab' + (tab === 'baseup' ? ' tab-active' : '')}
-          onClick={() => setTab('baseup')}
-        >
-          ベースアップ評価料
-        </button>
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            className={'tab' + (tab === t.key ? ' tab-active' : '')}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
       </nav>
 
-      {tab === 'dashboard' ? <DashboardTab /> : tab === 'hojokin' ? <SubsidiesTab /> : <BaseupTab />}
+      {/* 経営ダッシュボードと調剤基本料 判定は同じ土台（同じ月次データ）を使うので、
+          同じ位置に DashboardTab を置いて view だけ切り替える（タブ往復で読み直しが起きない）。 */}
+      {tab === 'dashboard' || tab === 'kihonryo' ? (
+        <DashboardTab view={tab === 'kihonryo' ? 'kihonryo' : 'keiei'} />
+      ) : tab === 'baseup' ? (
+        <BaseupTab />
+      ) : (
+        <SubsidiesTab />
+      )}
 
       {migrating && <Migrate onClose={() => setMigrating(false)} />}
     </div>

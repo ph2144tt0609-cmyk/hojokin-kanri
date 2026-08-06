@@ -294,9 +294,11 @@
   }
 }
 
-/* ── タブ（セグメント風） ── */
+/* ── タブ（セグメント風）── 4つの道具を横並びに置く ── */
 .tabbar {
   display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
   gap: 4px;
   padding: 4px;
   border-radius: 12px;
@@ -314,7 +316,26 @@
   font-weight: 600;
   color: var(--muted);
   cursor: pointer;
+  white-space: nowrap;
   transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+/* 画面が狭いときは4つを2段に折り返して、はみ出さないようにする */
+@media (max-width: 720px) {
+  .tabbar {
+    display: flex;
+    width: 100%;
+  }
+  .tab {
+    flex: 1 1 calc(50% - 4px);
+    padding: 9px 8px;
+    font-size: 13px;
+  }
+}
+@media (max-width: 380px) {
+  .tab {
+    font-size: 12px;
+    padding: 8px 4px;
+  }
 }
 .tab:hover {
   color: var(--text);

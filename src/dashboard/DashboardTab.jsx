@@ -221,7 +221,8 @@ function useIsDesktop(bp = 960) {
   return d;
 }
 
-export default function DashboardTab() {
+// view は上位（App のタブ）から渡す。"keiei"=経営ダッシュボード / "kihonryo"=調剤基本料 判定
+export default function DashboardTab({ view = "keiei" }) {
   const isDesktop = useIsDesktop();
 
   // データ＝暗号化seed（基準値）＋ この端末に保存した手入力(override)をマージ
@@ -340,7 +341,6 @@ export default function DashboardTab() {
 
   const [selPeriod, setSelPeriod] = useState(null); // 選択中の月（"4月" など）
   const [cmpMode, setCmpMode] = useState("mom"); // "mom"=前月比 / "yoy"=前年同期比
-  const [view, setView] = useState("keiei"); // "keiei"=経営ダッシュボード / "kihonryo"=調剤基本料
 
   // 月データの入力フォーム
   const [editing, setEditing] = useState(false);
@@ -603,27 +603,11 @@ export default function DashboardTab() {
           <Logo size={44} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 10.5, letterSpacing: 2.5, color: C.teal, fontWeight: 700 }}>株式会社しずく</div>
-            <div style={{ fontFamily: FONT_SERIF, fontSize: 21, fontWeight: 600, letterSpacing: 0.5, lineHeight: 1.2, color: C.ink, whiteSpace: "nowrap" }}>経営ダッシュボード</div>
+            <div style={{ fontFamily: FONT_SERIF, fontSize: 21, fontWeight: 600, letterSpacing: 0.5, lineHeight: 1.2, color: C.ink, whiteSpace: "nowrap" }}>
+              {view === "kihonryo" ? "調剤基本料 判定" : "経営ダッシュボード"}
+            </div>
           </div>
           <SyncBadge status={syncStatus} />
-        </div>
-
-        {/* 表示切替：経営ダッシュボード / 調剤基本料 判定 */}
-        <div style={{ display: "flex", gap: 4, background: "#E5F0EE", borderRadius: 12, padding: 3, border: `1px solid ${C.border}`, marginBottom: 12 }}>
-          {[["keiei", "経営ダッシュボード"], ["kihonryo", "調剤基本料 判定"]].map(([v, label]) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              style={{
-                flex: 1, padding: "9px 4px", borderRadius: 9, border: "none",
-                background: view === v ? `linear-gradient(135deg, ${C.teal}, ${C.tealBright})` : "transparent",
-                color: view === v ? "#fff" : C.sub,
-                fontWeight: 800, fontSize: 12.5, cursor: "pointer",
-              }}
-            >
-              {label}
-            </button>
-          ))}
         </div>
 
         {view === "kihonryo" && (
@@ -1135,14 +1119,17 @@ export default function DashboardTab() {
         </>
         )}
 
-        <div style={{ textAlign: "center", fontSize: 11, color: C.sub, marginTop: 20, lineHeight: 1.7 }}>
-          出典：DPC各エリア集計／処方箋枚数＝受付回数・売上＝保険合計（技術料＋薬剤料）。会計年度は10月始まり。<br />
-          {CORP_NAME}は各薬局の合算を自動表示（人件費のみ法人で入力）。前年同期比は一つ前の年度から自動計算。<br />
-          {hasOther
-            ? "他科枚数＝医院別調剤内訳の最多クリニック以外。データ未取得の月は0です。"
-            : "※ 他科枚数は未入力（0）のため、集中率は参考値です。"}
-          {hasOverrides && <><br />（この端末で手入力した数字を反映して表示中）</>}
-        </div>
+        {/* 出典の注記は経営ダッシュボードの数字に対するもの（基本料判定は独自の注記を持つ） */}
+        {view === "keiei" && (
+          <div style={{ textAlign: "center", fontSize: 11, color: C.sub, marginTop: 20, lineHeight: 1.7 }}>
+            出典：DPC各エリア集計／処方箋枚数＝受付回数・売上＝保険合計（技術料＋薬剤料）。会計年度は10月始まり。<br />
+            {CORP_NAME}は各薬局の合算を自動表示（人件費のみ法人で入力）。前年同期比は一つ前の年度から自動計算。<br />
+            {hasOther
+              ? "他科枚数＝医院別調剤内訳の最多クリニック以外。データ未取得の月は0です。"
+              : "※ 他科枚数は未入力（0）のため、集中率は参考値です。"}
+            {hasOverrides && <><br />（この端末で手入力した数字を反映して表示中）</>}
+          </div>
+        )}
 
         {/* ブランドフッター */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 18, opacity: 0.7 }}>
