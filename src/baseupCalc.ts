@@ -16,7 +16,7 @@ export const POINT_BASE = 4
 // 評価料の算定開始月。これより前の月は経営ダッシュボードに数字があっても取り込まない。
 export const FIRST_YM = '2026-06'
 
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 // 収入の内訳を薬局別に見せるための並び順（法人＝この2薬局の合算）
 export const PHARMACY_NAMES = ['緑ヶ丘薬局', '鷹匠薬局 公園店']
 export const DEFAULT_FACTOR = 1.165 // 増加分法定福利費 16.5%（厚労省Q&Aの便宜計算値）
@@ -45,12 +45,59 @@ export interface BStaff {
   // 薬局別管理だった頃のデータを法人1本へ結合したときの出どころ（目視整理の手がかり）
   origin?: string
 }
+// 賃金台帳から読んだ、その職員のその月の実績。
+// null＝台帳にその行が無い（職員マスタの固定値で補う）。
+export interface BLedgerMonth {
+  overtimeHours: number | null // 実残業時間
+  baseUp: number | null // ベア相当額（台帳で指定した行の合計）
+  allowance: number | null // ベースアップ手当（同上）
+  employerIns: number | null // 事業主負担の社会保険料等（実額）
+  paid: number | null // 支給合計（実額負担率の分母）
+}
+
+// 台帳のどの行を何として読むかの対応。台帳の様式が変わっても画面で直せるようにしておく。
+export interface LedgerMap {
+  overtime: string // 残業時間の行
+  baseUp: string[] // ベア相当額に当たる行（複数可）
+  allowance: string[] // ベースアップ手当に当たる行（複数可）
+  employer: string[] // 事業主負担の行（実額モードで使う）
+  paid: string // 支給合計の行
+}
+
+export const DEFAULT_LEDGER_MAP: LedgerMap = {
+  overtime: '残業時間',
+  baseUp: [],
+  allowance: [],
+  employer: [
+    '健康保険料(会社)',
+    '子ども・子育て支援金(会社)',
+    '厚生年金保険料(会社)',
+    '子ども・子育て拠出金(会社)',
+    '雇用保険料(会社)',
+    '労災保険料(会社)',
+    '一般拠出金(会社)',
+  ],
+  paid: '支給合計',
+}
+
+// 増加分法定福利費の出し方。
+//   fixed  … 厚労省Q&Aの便宜計算（既定16.5%）
+//   actual … 賃金台帳の事業主負担額 ÷ 支給合計 を、その月・その人の負担率として使う
+export type SurchargeMode = 'fixed' | 'actual'
+
+// 職員1人ぶんの台帳データ。ym → その月の実績
+export type StaffLedger = Record<string, BLedgerMonth>
+
 export interface BaseupState {
   version: number
   months: BMonth[]
   staff: BStaff[]
   factor: number // 増加分法定福利費の係数
   overtimeRate: number // 時間外割増率
+  // 賃金台帳から取り込んだ月別実績（職員ID → 年月 → 実績）
+  ledger: Record<string, StaffLedger>
+  ledgerMap: LedgerMap
+  surchargeMode: SurchargeMode
 }
 
 // 経営ダッシュボードから読んだ受付回数。ym → 薬局名 → 回数
@@ -108,16 +155,65 @@ export function staffAmounts(s: BStaff, factor: number, otRate: number) {
   return { bea, allowance, overtime, gross, surcharge: charged - gross, charged }
 }
 
+// 賃金台帳が入っている月は、その月の実績（残業時間・ベア・手当・事業主負担）で計算する。
+// 台帳に無い項目は職員マスタの固定値で補うので、台帳が1枚も無くても今までどおり動く。
+//   ・fromLedger  … その月に台帳の値を1つでも使ったか（画面で「台帳」と出すため）
+//   ・surchargeRate … 実際に使った増加分法定福利費の率（実額モードの検算用）
+export function staffAmountsAt(
+  s: BStaff,
+  ym: string,
+  state: Pick<BaseupState, 'factor' | 'overtimeRate' | 'ledger' | 'surchargeMode'>,
+) {
+  const nn = (v: unknown) => Math.max(0, Number(v) || 0)
+  const L = state.ledger?.[String(s.id)]?.[ym]
+  const pick = (v: number | null | undefined, fallback: number) =>
+    v == null ? { value: nn(fallback), used: false } : { value: nn(v), used: true }
+
+  const bea = pick(L?.baseUp, s.baseUp)
+  const allowance = pick(L?.allowance, s.allowance)
+  const otHours = pick(L?.overtimeHours, s.overtimeHours)
+  const hours = nn(s.monthlyHours)
+
+  const hourlyUp = hours > 0 ? (bea.value + allowance.value) / hours : 0
+  const overtime = hourlyUp * nn(state.overtimeRate) * otHours.value
+  const gross = bea.value + allowance.value + overtime
+
+  // 実額モード：事業主負担 ÷ 支給合計 をその月の負担率とする。
+  // 台帳に両方そろっていない月は、便宜計算（係数）へ自動で戻す。
+  const factor = nn(state.factor) || 1
+  let rate = factor - 1
+  let actual = false
+  if (state.surchargeMode === 'actual' && L && L.employerIns != null && L.paid != null && L.paid > 0) {
+    rate = Math.max(0, L.employerIns / L.paid)
+    actual = true
+  }
+  const surcharge = gross * rate
+
+  return {
+    bea: bea.value,
+    allowance: allowance.value,
+    overtime,
+    gross,
+    surcharge,
+    charged: gross + surcharge,
+    overtimeHours: otHours.value,
+    surchargeRate: rate,
+    surchargeFromLedger: actual,
+    // 残業時間そのものを台帳から取れたか（画面の「台帳 ○h」の集計はこれだけを足す）
+    otFromLedger: otHours.used,
+    fromLedger: bea.used || allowance.used || otHours.used,
+  }
+}
+
 // その月に適用開始を迎えている職員全員の充当額（賃金改善）合計
 export function monthlyImprove(
   staffList: BStaff[],
   ym: string,
-  factor: number,
-  otRate: number,
+  state: Pick<BaseupState, 'factor' | 'overtimeRate' | 'ledger' | 'surchargeMode'>,
 ) {
   return staffList
     .filter((s) => (s.startYm || '0000-00') <= ym)
-    .reduce((a, s) => a + staffAmounts(s, factor, otRate).charged, 0)
+    .reduce((a, s) => a + staffAmountsAt(s, ym, state).charged, 0)
 }
 
 // 表示する月と、その月の受付回数を確定させる。
@@ -165,7 +261,7 @@ export function projection(state: BaseupState, rows: ResolvedMonth[]) {
     if (!r.entered) pending++
     const receipts = r.entered ? r.receipts : avgReceipts
     income += receipts * pointsForMonth(r.ym) * YEN_PER_POINT
-    improve += monthlyImprove(state.staff, r.ym, state.factor, state.overtimeRate)
+    improve += monthlyImprove(state.staff, r.ym, state)
   })
   const diff = improve - income
   // 不足を未入力の月だけで取り返す場合の、1か月あたり必要な賃上げ小計（法定福利費を掛ける前）
@@ -223,6 +319,9 @@ export function defaultState(): BaseupState {
     staff: DEFAULT_STAFF.map((s) => ({ ...s })),
     factor: DEFAULT_FACTOR,
     overtimeRate: DEFAULT_OT_RATE,
+    ledger: {},
+    ledgerMap: { ...DEFAULT_LEDGER_MAP },
+    surchargeMode: 'fixed',
   }
 }
 
@@ -278,6 +377,51 @@ function migrateOne(raw: unknown): BaseupState | null {
     staff,
     factor: factor || DEFAULT_FACTOR,
     overtimeRate: num(o.overtimeRate) || DEFAULT_OT_RATE,
+    ledger: readLedger(o.ledger),
+    ledgerMap: readLedgerMap(o.ledgerMap),
+    surchargeMode: o.surchargeMode === 'actual' ? 'actual' : 'fixed',
+  }
+}
+
+// 保存済みの台帳データを読み直す（欠けた項目は null＝固定値で補う扱いにする）
+function readLedger(raw: unknown): Record<string, StaffLedger> {
+  if (!raw || typeof raw !== 'object') return {}
+  const out: Record<string, StaffLedger> = {}
+  Object.entries(raw as Record<string, unknown>).forEach(([staffId, byYm]) => {
+    if (!byYm || typeof byYm !== 'object') return
+    const months: StaffLedger = {}
+    Object.entries(byYm as Record<string, unknown>).forEach(([ym, v]) => {
+      if (!v || typeof v !== 'object') return
+      const x = v as Record<string, unknown>
+      const n = (k: string) => {
+        const val = Number(x[k])
+        return x[k] == null || !Number.isFinite(val) ? null : val
+      }
+      months[ym] = {
+        overtimeHours: n('overtimeHours'),
+        baseUp: n('baseUp'),
+        allowance: n('allowance'),
+        employerIns: n('employerIns'),
+        paid: n('paid'),
+      }
+    })
+    if (Object.keys(months).length) out[staffId] = months
+  })
+  return out
+}
+
+function readLedgerMap(raw: unknown): LedgerMap {
+  const d = DEFAULT_LEDGER_MAP
+  if (!raw || typeof raw !== 'object') return { ...d, baseUp: [...d.baseUp], allowance: [...d.allowance], employer: [...d.employer] }
+  const o = raw as Record<string, unknown>
+  const list = (v: unknown, fb: string[]) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [...fb]
+  return {
+    overtime: str(o.overtime, d.overtime) || d.overtime,
+    baseUp: list(o.baseUp, d.baseUp),
+    allowance: list(o.allowance, d.allowance),
+    employer: list(o.employer, d.employer),
+    paid: str(o.paid, d.paid) || d.paid,
   }
 }
 
@@ -327,7 +471,17 @@ export function migrateBaseup(
     )
 
     return {
-      state: { version: SCHEMA_VERSION, months, staff, factor, overtimeRate },
+      state: {
+        version: SCHEMA_VERSION,
+        months,
+        staff,
+        factor,
+        overtimeRate,
+        // 台帳の取り込みは薬局別だった頃には無い機能なので、まっさらから始める
+        ledger: {},
+        ledgerMap: readLedgerMap(o.ledgerMap),
+        surchargeMode: o.surchargeMode === 'actual' ? 'actual' : 'fixed',
+      },
       mergedFromShops: true,
     }
   }

@@ -27,9 +27,17 @@ import {
   resolveMonths,
   shortYm,
   staffAmounts,
+  staffAmountsAt,
   yen,
 } from '../baseupCalc'
-import type { BStaff, BaseupState, ReceiptsByShop, ResolvedMonth } from '../baseupCalc'
+import type {
+  BStaff,
+  BaseupState,
+  ReceiptsByShop,
+  ResolvedMonth,
+  SurchargeMode,
+} from '../baseupCalc'
+import { WageLedgerImport, type ImportResult } from './WageLedgerImport'
 import '../Baseup.css'
 
 // 調剤ベースアップ評価料 月次管理（令和8年度改定）
@@ -227,6 +235,22 @@ function BaseupView({
 }) {
   const { staff, factor, overtimeRate } = state
   const [showShops, setShowShops] = useState(true)
+  const [showImport, setShowImport] = useState(false)
+  const [imported, setImported] = useState<ImportResult | null>(null)
+
+  // 職員ID → 台帳が入っている月数（職員表に「台帳 n か月」と出す）
+  const ledgerCount = useMemo(() => {
+    const out: Record<string, number> = {}
+    Object.entries(state.ledger ?? {}).forEach(([id, months]) => {
+      out[id] = Object.keys(months).length
+    })
+    return out
+  }, [state.ledger])
+  const ledgerMonths = useMemo(
+    () => new Set(Object.values(state.ledger ?? {}).flatMap((m) => Object.keys(m))),
+    [state.ledger],
+  )
+  const hasLedger = ledgerMonths.size > 0
 
   // 受付回数を確定させる（手動上書きの月以外は経営ダッシュボードの値）
   const resolved = useMemo(() => resolveMonths(state, receipts), [state, receipts])
@@ -244,6 +268,8 @@ function BaseupView({
     cumIncome: number
     cumImprove: number
     cumDiff: number
+    fromLedger: number // その月に賃金台帳の実績を使った人数
+    otHours: number // その月の実残業時間の合計
   }
   // 累計はreduceのアキュムレータで持ち回る（レンダー中の変数再代入を避ける）
   const rows = useMemo(
@@ -260,21 +286,31 @@ function BaseupView({
 
           // 適用開始月を迎えた職員だけを、その月の賃金改善に算入する
           const active = staff.filter((s) => (s.startYm || '0000-00') <= mo.ym)
+          const zero = {
+            bea: 0,
+            allowance: 0,
+            overtime: 0,
+            surcharge: 0,
+            improve: 0,
+            fromLedger: 0,
+            otHours: 0,
+          }
+          // 賃金台帳が入っている月はその月の実績で、無ければ職員マスタの固定値で計算する
           const sums = mo.entered
-            ? active.reduce(
-                (t, s) => {
-                  const a = staffAmounts(s, factor, overtimeRate)
-                  return {
-                    bea: t.bea + a.bea,
-                    allowance: t.allowance + a.allowance,
-                    overtime: t.overtime + a.overtime,
-                    surcharge: t.surcharge + a.surcharge,
-                    improve: t.improve + a.charged,
-                  }
-                },
-                { bea: 0, allowance: 0, overtime: 0, surcharge: 0, improve: 0 },
-              )
-            : { bea: 0, allowance: 0, overtime: 0, surcharge: 0, improve: 0 }
+            ? active.reduce((t, s) => {
+                const a = staffAmountsAt(s, mo.ym, state)
+                return {
+                  bea: t.bea + a.bea,
+                  allowance: t.allowance + a.allowance,
+                  overtime: t.overtime + a.overtime,
+                  surcharge: t.surcharge + a.surcharge,
+                  improve: t.improve + a.charged,
+                  fromLedger: t.fromLedger + (a.fromLedger ? 1 : 0),
+                  // 台帳から読めた人の残業時間だけを足す（固定値の人は混ぜない）
+                  otHours: t.otHours + (a.otFromLedger ? a.overtimeHours : 0),
+                }
+              }, zero)
+            : zero
 
           const cumIncome = acc.cumIncome + income
           const cumImprove = acc.cumImprove + sums.improve
@@ -293,7 +329,7 @@ function BaseupView({
         },
         { list: [], cumIncome: 0, cumImprove: 0 },
       ).list,
-    [resolved, staff, factor, overtimeRate],
+    [resolved, staff, state],
   )
 
   const enteredRows = useMemo(() => rows.filter((r) => r.entered), [rows])
@@ -462,6 +498,35 @@ function BaseupView({
     onChange({ ...state, staff: staff.filter((x) => x.id !== id) })
   const setFactor = (f: number) => onChange({ ...state, factor: f })
   const setOvertimeRate = (r: number) => onChange({ ...state, overtimeRate: r })
+  const setSurchargeMode = (m: SurchargeMode) => onChange({ ...state, surchargeMode: m })
+
+  // 賃金台帳の取り込み。同じ職員の同じ月は新しい台帳で置き換え、それ以外は残す。
+  const applyLedger = (r: ImportResult) => {
+    const ledger = { ...state.ledger }
+    Object.entries(r.ledger).forEach(([id, months]) => {
+      ledger[id] = { ...(ledger[id] ?? {}), ...months }
+    })
+    onChange({
+      ...state,
+      ledger,
+      ledgerMap: r.map,
+      staff: r.addedStaff.length ? [...staff, ...r.addedStaff] : staff,
+    })
+    setShowImport(false)
+    setImported(r)
+  }
+  const clearLedger = (id?: number) => {
+    if (id == null) {
+      if (!window.confirm('取り込んだ賃金台帳の実績をすべて削除します。よろしいですか？\n（職員表の固定額での計算に戻ります）'))
+        return
+      onChange({ ...state, ledger: {} })
+      setImported(null)
+      return
+    }
+    const ledger = { ...state.ledger }
+    delete ledger[String(id)]
+    onChange({ ...state, ledger })
+  }
 
   const resetAll = () => {
     if (
@@ -485,7 +550,10 @@ function BaseupView({
       'ベア相当額(円)',
       'ベースアップ手当(円)',
       '残業代増額分(円)',
-      `増加分法定福利費(円・${((factor - 1) * 100).toFixed(1)}%)`,
+      '実残業時間(h・賃金台帳)',
+      state.surchargeMode === 'actual'
+        ? '増加分法定福利費(円・賃金台帳の実額)'
+        : `増加分法定福利費(円・${((factor - 1) * 100).toFixed(1)}%)`,
       `賃金改善(円・×${factor})`,
       '当月差額(円)',
       '累計差額(円)',
@@ -503,6 +571,7 @@ function BaseupView({
         r.entered ? Math.round(r.bea) : '',
         r.entered ? Math.round(r.allowance) : '',
         r.entered ? Math.round(r.overtime) : '',
+        r.entered && r.fromLedger > 0 ? r.otHours.toFixed(2) : '',
         r.entered ? Math.round(r.surcharge) : '',
         r.entered ? Math.round(r.improve) : '',
         r.entered ? Math.round(r.diff) : '',
@@ -778,7 +847,23 @@ function BaseupView({
                   <td>{r.entered ? yen(r.income) : '—'}</td>
                   <td>{r.entered ? yen(r.bea) : '—'}</td>
                   <td>{r.entered ? yen(r.allowance) : '—'}</td>
-                  <td>{r.entered ? yen(r.overtime) : '—'}</td>
+                  <td>
+                    {r.entered ? (
+                      <span className="ot-cell">
+                        {yen(r.overtime)}
+                        {r.fromLedger > 0 && (
+                          <span
+                            className="tag tag-auto"
+                            title={`賃金台帳の実績を使った職員 ${r.fromLedger}名（実残業 計 ${r.otHours.toFixed(1)}h）。ほかの職員は職員表の固定値`}
+                          >
+                            台帳 {r.fromLedger}名 {r.otHours.toFixed(1)}h
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>{r.entered ? yen(r.surcharge) : '—'}</td>
                   <td>{r.entered ? yen(r.improve) : '—'}</td>
                   <td style={{ color: !r.entered ? '#9aa8a8' : r.diff < 0 ? '#b4341f' : '#137a4b' }}>
@@ -839,15 +924,111 @@ function BaseupView({
           <br />
           点数は 2026-06〜2027-05 が <b>4点</b>、2027-06（令和9年6月）以降は <b>8点</b>（200%）に自動切替（1点＝10円）。
           <br />
-          <b>ベア相当額＋ベースアップ手当＋残業代増額分＋増加分法定福利費＝賃金改善</b>（増加分法定福利費＝社会保険料など事業主負担の増加分で、その3つの合計の{((factor - 1) * 100).toFixed(1)}%）。
+          <b>ベア相当額＋ベースアップ手当＋残業代増額分＋増加分法定福利費＝賃金改善</b>（増加分法定福利費＝社会保険料など事業主負担の増加分
+          {state.surchargeMode === 'actual'
+            ? '。賃金台帳の実額から月ごとに算出しています'
+            : `で、その3つの合計の${((factor - 1) * 100).toFixed(1)}%`}）。
+          <br />
+          <span className="tag tag-auto">台帳</span> が付いた月は<b>賃金台帳の実残業時間</b>で計算した月です。
+          付いていない月は職員表の固定値（月平均）を使っています。
         </p>
       </section>
+
+      {/* 賃金台帳の取り込み */}
+      {showImport ? (
+        <WageLedgerImport
+          staff={staff}
+          map={state.ledgerMap}
+          onApply={applyLedger}
+          onCancel={() => setShowImport(false)}
+        />
+      ) : (
+        <section className="card">
+          <h2>
+            <span className="num">3</span>賃金台帳の取り込み（毎月の実績で自動計算）
+          </h2>
+          <div className="ledger-status">
+            {hasLedger ? (
+              <>
+                <span className="badge ok">台帳 取り込み済み</span>
+                <span className="note">
+                  {Object.keys(ledgerCount).length} 名 ／ {ledgerMonths.size} か月分（
+                  {[...ledgerMonths].sort()[0]}〜{[...ledgerMonths].sort().slice(-1)[0]}）。
+                  台帳のある月は<b>実残業時間</b>で残業代増額分を計算しています。
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="badge warn">台帳 未取り込み</span>
+                <span className="note">
+                  いまは職員表の固定値で計算しているため、<b>残業代増額分が毎月同じ額</b>になります。
+                  賃金台帳を読み込むと、月ごとの実残業時間で自動計算されます。
+                </span>
+              </>
+            )}
+          </div>
+          {imported && (
+            <p className="note">
+              ✓ {imported.people} ファイル・{imported.months.length} か月分を取り込みました
+              {imported.addedStaff.length > 0 &&
+                `（新しく ${imported.addedStaff.length} 名を職員表に追加しました）`}
+              。
+            </p>
+          )}
+          <div className="row-actions">
+            <button className="btn primary" onClick={() => setShowImport(true)}>
+              賃金台帳を読み込む
+            </button>
+            {hasLedger && (
+              <button className="btn ghost" onClick={() => clearLedger()}>
+                取り込んだ実績を全部消す
+              </button>
+            )}
+          </div>
+
+          <div className="mode-pick">
+            <div className="pick-title">増加分法定福利費の出し方</div>
+            <label className="chk">
+              <input
+                type="radio"
+                name="surcharge-mode"
+                checked={state.surchargeMode !== 'actual'}
+                onChange={() => setSurchargeMode('fixed')}
+              />
+              便宜計算（係数 {factor}＝{((factor - 1) * 100).toFixed(1)}%）
+            </label>
+            <label className="chk">
+              <input
+                type="radio"
+                name="surcharge-mode"
+                checked={state.surchargeMode === 'actual'}
+                disabled={!hasLedger}
+                onChange={() => setSurchargeMode('actual')}
+              />
+              賃金台帳の実額（事業主負担 ÷ 支給合計をその月の負担率にする）
+              {!hasLedger && <span className="note">（台帳を取り込むと選べます）</span>}
+            </label>
+            <p className="note">
+              実額を選んでも、事業主負担が読めない月は自動で便宜計算（{((factor - 1) * 100).toFixed(1)}%）に戻します。
+              実績報告でどちらを使うかは、月次明細の数字を見比べて決められます。
+            </p>
+          </div>
+          <p className="note">
+            読み込むのは給与ソフトの<b>賃金台帳CSV（1人1ファイル・列が○月度）</b>です。
+            ファイルの中身はこの画面の中だけで読み取り、原本はどこにも送りません。
+            取り込んだ数字（氏名・月別の残業時間と金額）は、他のデータと同じく合言葉で暗号化して保存されます。
+          </p>
+        </section>
+      )}
 
       {/* 職員 */}
       <section className="card">
         <h2>
-          <span className="num">3</span>対象職員の賃上げ（法人全体・ベア相当額・ベースアップ手当・残業代増額分）
+          <span className="num">4</span>対象職員の賃上げ（法人全体・ベア相当額・ベースアップ手当・残業代増額分）
         </h2>
+        <p className="note" style={{ marginTop: -4, marginBottom: 10 }}>
+          ここの数字は<b>賃金台帳が無い月に使う基準値</b>です。台帳を取り込んだ月は、そちらの実績が優先されます。
+        </p>
         <div className="tbl-scroll">
           <table className="staff-table">
             <thead>
@@ -858,6 +1039,7 @@ function BaseupView({
                 <th>ベースアップ手当(円)</th>
                 <th>所定労働(h/月)</th>
                 <th>残業(h/月)</th>
+                <th>賃金台帳</th>
                 <th>残業代増額分(円)</th>
                 <th>増加分法定福利費(円)</th>
                 <th>適用開始月</th>
@@ -931,6 +1113,22 @@ function BaseupView({
                         }
                       />
                     </td>
+                    <td data-label="賃金台帳">
+                      {ledgerCount[String(s.id)] ? (
+                        <span className="ledger-cell">
+                          <span className="tag tag-auto">{ledgerCount[String(s.id)]} か月</span>
+                          <button
+                            className="link-btn"
+                            onClick={() => clearLedger(s.id)}
+                            title="この職員の取り込み実績を消して、上の固定値での計算に戻します"
+                          >
+                            消す
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="note">—</span>
+                      )}
+                    </td>
                     <td data-label="残業代増額分(円)">{yen(a.overtime)}</td>
                     <td data-label="増加分法定福利費(円)">{yen(a.surcharge)}</td>
                     <td data-label="適用開始月">
@@ -956,6 +1154,7 @@ function BaseupView({
                 <td colSpan={2}>合計</td>
                 <td data-label="ベア相当額 合計">{yen(staffTotal.bea)}</td>
                 <td data-label="ベースアップ手当 合計">{yen(staffTotal.allowance)}</td>
+                <td></td>
                 <td></td>
                 <td></td>
                 <td data-label="残業代増額分 合計">{yen(staffTotal.overtime)}</td>
@@ -1008,7 +1207,7 @@ function BaseupView({
       {/* 年度サマリー */}
       <section className="card">
         <h2>
-          <span className="num">4</span>年度サマリー（実績報告の目安・法人合算）
+          <span className="num">5</span>年度サマリー（実績報告の目安・法人合算）
         </h2>
         <div className="tbl-scroll">
           <table>
@@ -1067,7 +1266,7 @@ function BaseupView({
       {/* データ管理 */}
       <section className="card">
         <h2>
-          <span className="num">5</span>データ管理
+          <span className="num">6</span>データ管理
         </h2>
         <div className="row-actions">
           <button className="btn" onClick={exportCsv}>
