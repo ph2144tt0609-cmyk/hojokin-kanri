@@ -1,40 +1,62 @@
+/* sizucu compass ─ デザイントークン
+   会社HP（sizucu.co.jp）の名刺パレット・書体をそのまま引き継ぐ。
+   ネイビー×ペーパー×明朝＋Cormorantイタリック。角はほぼ立てる（HPはカード角丸なし）。 */
 :root {
+  /* 名刺から忠実抽出（HPと同値） */
+  --navy: #3d4e5e;
+  --navy-deep: #2a3540;
+  --navy-soft: #5a6d7d;
+  --steel: #5a86b2;
+  --blue-pale: #b8c8d4;
+  --blue-mist: #edf2f5;
+  --sage: #c2cfd8;
+
+  /* 店舗カラー（緑ヶ丘=green／鷹匠=orange）とアクセント */
+  --c-green: #8fa83d;
+  --c-orange: #d98f40;
+  --gold: #d9b040;
+
   /* ベース */
-  --bg: #eef1f8;
+  --bg: #fbfbf8; /* ペーパー */
   --surface: #ffffff;
-  --surface-2: #f8fafc;
-  --text: #0f172a;
-  --muted: #64748b;
-  --faint: #94a3b8;
-  --border: #e6eaf2;
-  --border-strong: #d4dbe8;
+  --surface-2: #f7f8f6;
+  --text: #2a3540;
+  --muted: #5a6b76;
+  --faint: #8a98a2;
+  --border: #dde4e8;
+  --border-strong: #c9d3da;
 
-  /* ブランド（インディゴ系・少しリッチに） */
-  --primary: #4f46e5;
-  --primary-d: #4338ca;
-  --primary-l: #eef2ff;
-  --primary-rgb: 79, 70, 229;
+  /* 旧テーマ互換（--primary系は多くの部品が参照するのでネイビーへ張り替え） */
+  --primary: #3d4e5e;
+  --primary-d: #2a3540;
+  --primary-l: #edf2f5;
+  --primary-rgb: 61, 78, 94;
 
-  /* ステータス色 */
-  --red: #dc2626;
-  --red-bg: #fef2f2;
-  --amber: #b45309;
-  --amber-bg: #fffbeb;
-  --green: #15803d;
-  --green-bg: #f0fdf4;
-  --gray: #94a3b8;
-  --sky: #0284c7;
-  --sky-bg: #eff6ff;
+  /* ステータス色（経営ダッシュボードの up/down と同系に揃える） */
+  --red: #c25454;
+  --red-bg: #f9ecec;
+  --amber: #9a7420;
+  --amber-bg: #faf4e2;
+  --green: #6f8a2c;
+  --green-bg: #f0f4e3;
+  --gray: #8a98a2;
+  --sky: #5a86b2;
+  --sky-bg: #edf2f5;
 
-  /* 影・角丸 */
-  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 6px 20px rgba(15, 23, 42, 0.08);
-  --shadow-lg: 0 24px 60px rgba(15, 23, 42, 0.22);
-  --radius: 14px;
-  --radius-sm: 9px;
+  /* 影はごく薄く（HPは線で構成する）・角はほぼ立てる */
+  --shadow-sm: 0 1px 2px rgba(42, 53, 64, 0.05);
+  --shadow-md: 0 10px 30px rgba(42, 53, 64, 0.1);
+  --shadow-lg: 0 24px 60px rgba(42, 53, 64, 0.22);
+  --radius: 2px;
+  --radius-sm: 2px;
 
-  font-family: system-ui, -apple-system, 'Segoe UI', 'Hiragino Kaku Gothic ProN',
-    'Noto Sans JP', Meiryo, sans-serif;
+  /* 書体（HPと同じ） */
+  --serif: 'Noto Serif JP', 'Yu Mincho', '游明朝', serif;
+  --sans: 'Zen Kaku Gothic New', 'Hiragino Kaku Gothic ProN', 'Yu Gothic', sans-serif;
+  --latin: 'Cormorant Garamond', serif;
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  font-family: var(--sans);
   color-scheme: light;
   color: var(--text);
 }
@@ -51,16 +73,25 @@ body,
 }
 
 body {
-  /* やわらかいグラデーション背景でのっぺり感をなくす */
+  /* ペーパー地に、HPのミスト（薄青）を上端からうっすら敷く */
   background:
-    radial-gradient(1200px 600px at 100% -10%, rgba(var(--primary-rgb), 0.1), transparent 60%),
-    radial-gradient(900px 500px at -10% 0%, rgba(2, 132, 199, 0.08), transparent 55%),
+    radial-gradient(135% 46% at 50% -8%, var(--blue-mist) 0%, rgba(237, 242, 245, 0) 62%),
     var(--bg);
   background-attachment: fixed;
-  font-size: 16px;
-  line-height: 1.5;
+  font-size: 15.5px;
+  line-height: 1.7;
+  font-feature-settings: 'palt';
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--navy);
+  color: #fff;
+}
+:focus-visible {
+  outline: 2px solid var(--steel);
+  outline-offset: 3px;
 }
 
 button {

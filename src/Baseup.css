@@ -1,16 +1,17 @@
 /* ベースアップ評価料タブ専用スタイル。すべて .baseup 配下に隔離し、
    補助金タブ（App.css）と干渉しないようにする。 */
 .baseup {
-  --teal: #0e7c7b;
-  --teal-d: #0a5e5d;
-  --teal-l: #e6f1ed;
-  --ink: #1f2a2a;
-  --muted: #5b6b6b;
-  --line: #d4e2dd;
-  --ok: #137a4b;
-  --ok-bg: #e3f4ea;
-  --warn: #b4341f;
-  --warn-bg: #fbe7e2;
+  /* 会社HP（sizucu.co.jp）の名刺パレットに揃える。変数名は旧来のまま値だけ差し替え */
+  --teal: #3d4e5e; /* ネイビー（ブランド主色） */
+  --teal-d: #2a3540; /* 濃ネイビー */
+  --teal-l: #edf2f5; /* ブルーミスト */
+  --ink: #2a3540;
+  --muted: #5a6b76;
+  --line: #dde4e8;
+  --ok: #6f8a2c; /* グリーン（達成） */
+  --ok-bg: #f0f4e3;
+  --warn: #c25454; /* レッド（不足） */
+  --warn-bg: #f9ecec;
   --card: #ffffff;
   color: var(--ink);
 }
@@ -26,7 +27,7 @@
   border: 1px solid var(--line);
   background: #fff;
   color: var(--muted);
-  border-radius: 999px;
+  border-radius: 2px;
   padding: 7px 16px;
   font-size: 13px;
   font-weight: 600;
@@ -48,12 +49,12 @@
   gap: 12px;
   margin-bottom: 14px;
   padding: 12px 14px;
-  border: 1px solid #f0d9a8;
-  background: #fdf6e6;
-  border-radius: 12px;
+  border: 1px solid #e8d9ad;
+  background: #faf4e2;
+  border-radius: 0;
   font-size: 12.5px;
   line-height: 1.7;
-  color: #6b5324;
+  color: #7d6220;
 }
 .baseup .notice .btn {
   flex: none;
@@ -71,7 +72,7 @@
   bottom: 16px;
   z-index: 60;
   padding: 10px 18px;
-  border-radius: 999px;
+  border-radius: 2px;
   font-size: 14px;
   font-weight: 700;
   background: #fff;
@@ -97,13 +98,16 @@
 .baseup .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 16px;
+  border-radius: 0;
+  padding: 18px;
   margin-top: 16px;
-  box-shadow: 0 1px 3px rgba(14, 124, 123, 0.06);
+  box-shadow: none;
 }
 .baseup .card h2 {
-  font-size: 15px;
+  font-family: 'Noto Serif JP', 'Yu Mincho', '游明朝', serif;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  font-size: 15.5px;
   margin: 0 0 12px;
   color: var(--teal-d);
   display: flex;
@@ -131,8 +135,8 @@
 .baseup .stat {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: 0;
+  padding: 15px 17px;
 }
 .baseup .stat .label {
   font-size: 12px;
@@ -153,7 +157,7 @@
 .baseup .badge {
   display: inline-block;
   padding: 4px 12px;
-  border-radius: 999px;
+  border-radius: 2px;
   font-size: 14px;
   font-weight: 700;
 }
@@ -183,7 +187,7 @@
   font-size: 11.5px;
   color: var(--muted);
   font-weight: 600;
-  background: #f4f9f7;
+  background: #f3f6f8;
 }
 .baseup th:first-child,
 .baseup td:first-child {
@@ -193,7 +197,7 @@
   background: var(--warn-bg);
 }
 .baseup tbody tr.pending td {
-  background: #f7faf9;
+  background: #f7f8f9;
   color: #9aa8a8;
 }
 .baseup tbody tr.pending td:first-child {
@@ -202,7 +206,7 @@
 .baseup tfoot td {
   font-weight: 700;
   border-top: 2px solid var(--teal);
-  background: #f4f9f7;
+  background: #f3f6f8;
 }
 .baseup .tbl-scroll {
   overflow-x: auto;
@@ -217,7 +221,7 @@
   font-size: 13px;
   padding: 5px 7px;
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 2px;
   background: #fff;
   color: var(--ink);
   width: 100%;
@@ -241,7 +245,7 @@
   border: 1px solid var(--teal);
   background: #fff;
   color: var(--teal-d);
-  border-radius: 8px;
+  border-radius: 2px;
   padding: 6px 12px;
   font-size: 13px;
   font-weight: 600;
@@ -322,7 +326,7 @@
 
 /* 薬局別の内訳列は、合計より控えめに見せる */
 .baseup th.shop-col {
-  background: #eef6f3;
+  background: #f3f6f8;
   line-height: 1.35;
 }
 .baseup td.shop-col {
@@ -346,7 +350,7 @@
   max-width: 84px;
 }
 .baseup .tag {
-  border-radius: 999px;
+  border-radius: 2px;
   padding: 1px 7px;
   font-size: 10.5px;
   font-weight: 700;
@@ -357,9 +361,9 @@
   color: var(--teal-d);
 }
 .baseup .tag-manual {
-  background: #fdf0dc;
-  color: #8a5a12;
-  border: 1px solid #f0d9a8;
+  background: #faf4e2;
+  color: #9a7420;
+  border: 1px solid #e8d9ad;
 }
 .baseup .link-btn {
   border: 0;
@@ -377,7 +381,7 @@
 }
 /* 手入力の月は色を付けて、自動参照の行と区別できるようにする */
 .baseup tbody tr:has(.receipts-manual) td:first-child {
-  box-shadow: inset 3px 0 0 #e0a72e;
+  box-shadow: inset 3px 0 0 #d9b040;
 }
 
 /* 職員がどの薬局から来たか（薬局別→法人1本の結合時に付く） */
@@ -386,9 +390,9 @@
   margin-top: 3px;
   font-size: 10.5px;
   color: var(--muted);
-  background: #f4f9f7;
+  background: #f3f6f8;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: 2px;
   padding: 1px 7px;
 }
 
@@ -442,8 +446,8 @@
 .baseup .rate-bar {
   position: relative;
   height: 8px;
-  border-radius: 999px;
-  background: #e6eeeb;
+  border-radius: 0;
+  background: #edf2f5;
   margin-top: 8px;
   overflow: hidden;
 }
@@ -462,7 +466,7 @@
 /* 着地見込みバナー */
 .baseup .insight {
   margin-top: 12px;
-  border-radius: 12px;
+  border-radius: 0;
   padding: 10px 14px;
   font-size: 12.5px;
   line-height: 1.8;
@@ -470,11 +474,11 @@
 }
 .baseup .insight-ok {
   background: var(--ok-bg);
-  border: 1px solid #bfe3cd;
+  border: 1px solid #d9e2be;
 }
 .baseup .insight-warn {
-  background: #fdf3e7;
-  border: 1px solid #f2cfa4;
+  background: #faf4e2;
+  border: 1px solid #e8d9ad;
 }
 .baseup .insight-title {
   font-weight: 700;
@@ -522,9 +526,9 @@
 }
 .baseup .pick-grid > div {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px 12px;
-  background: #fbfdfc;
+  background: #fafbfc;
 }
 .baseup .pick-grid .chk {
   display: flex;
@@ -545,9 +549,9 @@
 }
 .baseup .mode-pick {
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 0;
   padding: 10px 12px;
-  background: #fbfdfc;
+  background: #fafbfc;
   margin-top: 12px;
 }
 .baseup .mode-pick .chk {

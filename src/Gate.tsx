@@ -76,8 +76,15 @@ export function Gate({ children }: { children: ReactNode }) {
   return (
     <div className="gate">
       <div className="gate-card">
-        <div className="gate-title">薬局管理ツール</div>
-        <div className="gate-sub">合言葉を入力してください</div>
+        <img
+          className="gate-mark"
+          src={import.meta.env.BASE_URL + 'sizucu-logo-color.png'}
+          alt=""
+          aria-hidden="true"
+        />
+        <div className="gate-latin">Sizucu Pharmacy Group</div>
+        <h1 className="gate-title">sizucu compass</h1>
+        <div className="gate-sub">経営の羅針盤 ─ 合言葉を入力してください</div>
         <input
           type="password"
           value={pw}

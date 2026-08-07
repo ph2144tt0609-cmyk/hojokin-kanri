@@ -38,8 +38,15 @@ function Main() {
     <div className="app">
       <header className="topbar">
         <h1 className="brand">
-          <span className="brand-mark" aria-hidden="true">¥</span>
-          薬局管理ツール
+          <img
+            className="brand-logo"
+            src={import.meta.env.BASE_URL + 'sizucu-logo-color.png'}
+            alt="株式会社しずく ロゴ"
+          />
+          <span className="brand-text">
+            <span className="brand-name">sizucu compass</span>
+            <span className="brand-sub">経営の羅針盤</span>
+          </span>
         </h1>
         <div className="topbar-right">
           <button className="btn-ghost" onClick={() => setMigrating(true)}>
@@ -206,7 +213,7 @@ function SubsidiesTab() {
     <>
       <div className="summary">
         <div className="sum-card sum-count">
-          <div className="sum-icon" aria-hidden="true">📋</div>
+          <div className="sum-latin">Total</div>
           <div className="sum-main">
             <div className="sum-label">件数{filter !== 'すべて' ? `・${filter}` : ''}</div>
             <div className="sum-value">
@@ -216,7 +223,7 @@ function SubsidiesTab() {
           </div>
         </div>
         <div className="sum-card sum-applied">
-          <div className="sum-icon" aria-hidden="true">📨</div>
+          <div className="sum-latin">Applied</div>
           <div className="sum-main">
             <div className="sum-label">申請済の合計金額</div>
             <div className="sum-value">
@@ -226,7 +233,7 @@ function SubsidiesTab() {
           </div>
         </div>
         <div className="sum-card sum-paid">
-          <div className="sum-icon" aria-hidden="true">💰</div>
+          <div className="sum-latin">Received</div>
           <div className="sum-main">
             <div className="sum-label">振込済の合計金額</div>
             <div className="sum-value">
@@ -236,7 +243,7 @@ function SubsidiesTab() {
           </div>
         </div>
         <div className="sum-card sum-unpaid">
-          <div className="sum-icon" aria-hidden="true">⏳</div>
+          <div className="sum-latin">Pending</div>
           <div className="sum-main">
             <div className="sum-label">未入金（申請済−振込済）</div>
             <div className="sum-value">

@@ -595,7 +595,8 @@ export default function DashboardTab({ view = "keiei" }) {
     .sort((a, b) => a.days - b.days);
 
   return (
-    <div style={{ minHeight: "100vh", background: `radial-gradient(135% 55% at 50% -8%, #eaf1f6 0%, ${C.bg} 55%)`, padding: "18px 14px 44px", fontFamily: FONT_SANS, color: C.ink }}>
+    // 背景（ペーパー＋ミスト）はアプリ外枠（index.css の body）が敷くので、ここでは重ねない
+    <div style={{ padding: "6px 0 44px", fontFamily: FONT_SANS, color: C.ink }}>
       <div style={{ maxWidth: isDesktop ? 1180 : 440, margin: "0 auto" }}>
 
         {/* マストヘッド */}
@@ -622,7 +623,7 @@ export default function DashboardTab({ view = "keiei" }) {
         {view === "keiei" && (
         <>
         {/* 薬局・法人セレクタ（セグメント） */}
-        <div style={{ display: "flex", gap: 4, background: "#E5F0EE", borderRadius: 14, padding: 4, border: `1px solid ${C.border}` }}>
+        <div style={{ display: "flex", gap: 4, background: "#EDF2F5", borderRadius: 14, padding: 4, border: `1px solid ${C.border}` }}>
           {[...pharmData.map((p) => p.name), CORP_NAME].map((name, i) => (
             <button
               key={i}
@@ -780,7 +781,7 @@ export default function DashboardTab({ view = "keiei" }) {
         {hasYearData && (
           <>
             {/* 比較ベース切替（前月比 / 前年同期比） */}
-            <div style={{ display: "flex", gap: 4, background: "#E5F0EE", borderRadius: 12, padding: 3, border: `1px solid ${C.border}`, margin: "0 0 12px" }}>
+            <div style={{ display: "flex", gap: 4, background: "#EDF2F5", borderRadius: 12, padding: 3, border: `1px solid ${C.border}`, margin: "0 0 12px" }}>
               {[["mom", "前月比"], ["yoy", "前年同期比"]].map(([m, label]) => (
                 <button
                   key={m}

@@ -722,17 +722,17 @@ function BaseupView({
           <div style={{ width: '100%', height: 320 }}>
             <ResponsiveContainer>
               <ComposedChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-                <CartesianGrid stroke="#eaf2ef" vertical={false} />
+                <CartesianGrid stroke="#e8edf1" vertical={false} />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
-                <Tooltip formatter={(v) => `${yen(Number(v))} 円`} labelStyle={{ color: '#0a5e5d' }} />
+                <Tooltip formatter={(v) => `${yen(Number(v))} 円`} labelStyle={{ color: '#2a3540' }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="収入" fill="#0e7c7b" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="ベア" stackId="w" fill="#457b9d" />
-                <Bar dataKey="手当" stackId="w" fill="#8ecae6" />
-                <Bar dataKey="残業" stackId="w" fill="#ffb703" />
-                <Bar dataKey="法定福利費" stackId="w" fill="#b8c0c8" radius={[3, 3, 0, 0]} />
-                <Line type="monotone" dataKey="累計差額" stroke="#db5424" strokeWidth={2} dot={false} />
+                <Bar dataKey="収入" fill="#3d4e5e" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="ベア" stackId="w" fill="#5a86b2" />
+                <Bar dataKey="手当" stackId="w" fill="#6eb4c7" />
+                <Bar dataKey="残業" stackId="w" fill="#d9b040" />
+                <Bar dataKey="法定福利費" stackId="w" fill="#c2cfd8" radius={[2, 2, 0, 0]} />
+                <Line type="monotone" dataKey="累計差額" stroke="#d98f40" strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -866,10 +866,10 @@ function BaseupView({
                   </td>
                   <td>{r.entered ? yen(r.surcharge) : '—'}</td>
                   <td>{r.entered ? yen(r.improve) : '—'}</td>
-                  <td style={{ color: !r.entered ? '#9aa8a8' : r.diff < 0 ? '#b4341f' : '#137a4b' }}>
+                  <td style={{ color: !r.entered ? '#9aa8a8' : r.diff < 0 ? '#c25454' : '#6f8a2c' }}>
                     {!r.entered ? '—' : `${r.diff >= 0 ? '+' : ''}${yen(r.diff)}`}
                   </td>
-                  <td style={{ color: !r.entered ? '#9aa8a8' : r.cumDiff < 0 ? '#b4341f' : '#137a4b' }}>
+                  <td style={{ color: !r.entered ? '#9aa8a8' : r.cumDiff < 0 ? '#c25454' : '#6f8a2c' }}>
                     {!r.entered ? '—' : `${r.cumDiff >= 0 ? '+' : ''}${yen(r.cumDiff)}`}
                   </td>
                 </tr>
@@ -1246,7 +1246,7 @@ function BaseupView({
                       <td>{yen(g.overtime)}</td>
                       <td>{yen(g.surcharge)}</td>
                       <td>{yen(g.improve)}</td>
-                      <td style={{ color: diff < 0 ? '#b4341f' : '#137a4b' }}>
+                      <td style={{ color: diff < 0 ? '#c25454' : '#6f8a2c' }}>
                         {diff >= 0 ? '+' : ''}
                         {yen(diff)}
                       </td>
