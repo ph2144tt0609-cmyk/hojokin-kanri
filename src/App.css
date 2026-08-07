@@ -340,6 +340,31 @@
   letter-spacing: 0.1em;
   margin-left: 2px;
 }
+/* 件数カードの内訳（進行中 / 完了） */
+.sum-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-size: 11.5px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.sub-active {
+  color: var(--muted);
+  font-weight: 500;
+}
+.sub-sep {
+  color: var(--border-strong);
+}
+.sub-done {
+  color: var(--green);
+  font-weight: 700;
+}
+.sub-decided {
+  color: var(--navy);
+  font-weight: 700;
+}
 .sum-count {
   --accent: var(--navy);
 }
@@ -438,10 +463,42 @@
   -webkit-appearance: none;
   cursor: pointer;
 }
+/* 絞り込みは「状態」「区分」の2段。状態が先（＝やること／終わったものの切替を上に置く） */
+.filter-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .filters {
   display: flex;
+  align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+.filters-label {
+  font-family: var(--latin);
+  font-style: italic;
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  color: var(--faint);
+  margin-right: 2px;
+  min-width: 30px;
+}
+.chip-count {
+  display: inline-block;
+  margin-left: 7px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--blue-mist);
+  color: var(--navy-soft);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: background 0.4s var(--ease), color 0.4s var(--ease);
+}
+.chip-active .chip-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
 }
 .chip {
   background: rgba(255, 255, 255, 0.6);
@@ -463,6 +520,17 @@
   border-color: var(--navy);
   color: #fff;
   font-weight: 500;
+}
+/* 「完了」チップだけは緑（一覧の緑＝完了と意味をそろえる） */
+.chip-done:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+.chip-done.chip-active,
+.chip-done.chip-active:hover {
+  background: var(--green);
+  border-color: var(--green);
+  color: #fff;
 }
 
 /* ── カード一覧 ── */
@@ -489,6 +557,11 @@
   gap: 9px;
   transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease), border-color 0.3s var(--ease);
 }
+/* カードの中身は、背景に敷く飾り（完了の ✓）より前に置く */
+.subsidy-card > * {
+  position: relative;
+  z-index: 1;
+}
 .subsidy-card:hover {
   transform: translateY(-3px);
   box-shadow: var(--shadow-md);
@@ -498,6 +571,8 @@
   outline: 2px solid var(--steel);
   outline-offset: 2px;
 }
+/* 左の線＝そのカードの立ち位置。緑は「完了」だけに使い、
+   未完了（余裕あり・申請済）には緑を出さない＝一覧を見渡して緑を探せば済んだ分がわかる。 */
 .lvl-overdue,
 .lvl-soon {
   border-left-color: var(--red);
@@ -506,14 +581,112 @@
   border-left-color: var(--gold);
 }
 .lvl-ok {
-  border-left-color: var(--c-green);
+  border-left-color: var(--sage);
 }
 .lvl-none {
   border-left-color: var(--blue-pale);
 }
-.lvl-done {
-  border-left-color: var(--c-green);
-  opacity: 0.72;
+.lvl-waiting {
+  border-left-color: var(--steel);
+}
+
+/* 決定通知が来た＝あとは入金待ち。完了の一歩手前として、青の面で一段進んだことを示す
+   （白＝未申請 → 淡い青の線＝申請済 → 青の面＝決定済 → 緑の面＝完了）。 */
+.subsidy-card.lvl-decided {
+  border-color: #cfdae4;
+  border-left: 5px solid var(--navy);
+  background: linear-gradient(180deg, var(--blue-mist) 0%, #fafcfd 58%, var(--surface) 100%);
+}
+.subsidy-card.lvl-decided:hover {
+  border-color: var(--navy-soft);
+}
+.subsidy-card.lvl-decided::after {
+  content: '¥';
+  position: absolute;
+  top: 24px;
+  right: 14px;
+  font-family: var(--latin);
+  font-size: 74px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--navy);
+  opacity: 0.08;
+  pointer-events: none;
+}
+.subsidy-card.lvl-decided .card-deadline {
+  color: var(--navy);
+  font-weight: 500;
+}
+.subsidy-card.lvl-decided .dept-badge {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* 完了：薄くして目立たなくするのではなく、緑の面と ✓ で「済んだもの」と分かるようにする */
+.subsidy-card.lvl-done {
+  border-color: #d5e0bd;
+  border-left: 5px solid var(--green);
+  background: linear-gradient(180deg, var(--green-bg) 0%, #fbfcf7 58%, var(--surface) 100%);
+}
+.subsidy-card.lvl-done:hover {
+  border-color: var(--green);
+}
+/* 右上に淡い ✓ を敷いて、遠目でも完了カードの塊が分かるようにする */
+.subsidy-card.lvl-done::after {
+  content: '✓';
+  position: absolute;
+  top: 26px;
+  right: 10px;
+  font-size: 76px;
+  line-height: 1;
+  font-weight: 700;
+  color: var(--green);
+  opacity: 0.09;
+  pointer-events: none;
+}
+.subsidy-card.lvl-done .card-name {
+  color: var(--navy);
+}
+.subsidy-card.lvl-done .card-deadline {
+  color: var(--green);
+  font-weight: 500;
+}
+.subsidy-card.lvl-done .card-progress {
+  background: #dfe8c8;
+}
+.subsidy-card.lvl-done .card-progress > span {
+  background: var(--green);
+}
+.subsidy-card.lvl-done .dept-badge {
+  background: rgba(255, 255, 255, 0.75);
+}
+.subsidy-card.lvl-done .status-pill.on {
+  background: rgba(255, 255, 255, 0.8);
+}
+
+/* 塊（決定通知が来たもの／完了したもの）のはじまりに入れる区切り */
+.grid-divider {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 14px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.grid-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.grid-divider.dv-decided {
+  color: var(--navy);
+}
+.grid-divider.dv-done {
+  color: var(--green);
 }
 
 .card-head {
@@ -549,16 +722,30 @@
   color: var(--amber);
 }
 .tag-ok {
-  background: var(--green-bg);
-  color: var(--green);
+  background: var(--blue-mist);
+  color: var(--navy-soft);
 }
 .tag-none {
   background: var(--surface-2);
   color: var(--muted);
 }
+.tag-waiting {
+  background: var(--sky-bg);
+  color: var(--sky);
+}
+/* 決定済も塗り（ネイビー）。完了の緑ほど強く出ないので、順序が見た目でも保たれる */
+.tag-decided {
+  background: var(--navy);
+  color: #fff;
+  letter-spacing: 0.08em;
+  padding: 3px 12px;
+}
+/* 完了だけは塗り（淡色地の他タグより一段強い）＝一覧で最初に目に入る */
 .tag-done {
-  background: var(--green-bg);
-  color: var(--green);
+  background: var(--green);
+  color: #fff;
+  letter-spacing: 0.08em;
+  padding: 3px 12px;
 }
 
 .card-name {
