@@ -2,19 +2,13 @@ import { Fragment } from 'react'
 import type { Subsidy } from '../types'
 import { STATUS_FIELDS } from '../types'
 import { deadlineLevel, daysLabel, formatDate, formatDay, yen } from '../expiry'
-import { progressOf } from '../subsidyStatus'
-import type { Stage } from '../subsidyStatus'
+import { progressOf, groupRankOf } from '../subsidyStatus'
 
 type Props = {
   subsidies: Subsidy[]
   /** 「やること → 決定通知が来たもの → 完了」の順に並んでいるとき、塊の頭に区切りを入れる */
   grouped?: boolean
   onEdit: (s: Subsidy) => void
-}
-
-// 一覧を3つの塊に分けるための順位。0＝まだ手を動かすもの、1＝入金待ち、2＝完了。
-export function groupRankOf(stage: Stage): 0 | 1 | 2 {
-  return stage === 'done' ? 2 : stage === 'decided' ? 1 : 0
 }
 
 const GROUP_HEAD: Record<1 | 2, { cls: string; label: string }> = {

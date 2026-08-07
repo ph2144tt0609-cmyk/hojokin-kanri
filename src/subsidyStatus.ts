@@ -20,6 +20,11 @@ export type Progress = {
   doneAt: string | null
 }
 
+// 一覧を3つの塊に分けるための順位。0＝まだ手を動かすもの、1＝入金待ち、2＝完了。
+export function groupRankOf(stage: Stage): 0 | 1 | 2 {
+  return stage === 'done' ? 2 : stage === 'decided' ? 1 : 0
+}
+
 export function progressOf(s: Subsidy): Progress {
   const fus = s.followups ?? []
   const followupTotal = fus.length

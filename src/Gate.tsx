@@ -60,15 +60,16 @@ export function Gate({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    let saved: string | null = null
+    let saved: string | null
     try {
       saved = sessionStorage.getItem(KEY)
     } catch {
       saved = null
     }
+    // 保存済みの合言葉での自動復帰（外部システム＝sessionStorage との同期なので effect が正位置）
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (saved) tryPass(saved, true)
     // 初回のみ
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   if (ready) return <>{children}</>

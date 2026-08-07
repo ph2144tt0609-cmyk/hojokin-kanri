@@ -153,7 +153,7 @@ export function parseWageLedger(text: string, fileName = ''): LedgerPerson | nul
 }
 
 // 氏名の表記ゆれ（全角/半角スペース・空白なし）を吸収して突き合わせる
-export const normalizeName = (s: string) => (s || '').replace(/[\s　]/g, '')
+export const normalizeName = (s: string) => (s || '').replace(/[\s\u3000]/g, '')
 
 // 指定した行ラベル群の合計（1つも値が無ければ null＝その月はデータ無し）
 export function sumRows(
